@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<scene version="0.6.0">
+	<default name="spp" value="32"/>
+	<default name="voxres" value="16"/>
+	<default name="voxelminX" value="-1"/>
+	<default name="voxelminY" value="-1"/>
+	<default name="voxelminZ" value="-1"/>
+	<default name="voxelmaxX" value="1"/>
+	<default name="voxelmaxY" value="1"/>
+	<default name="voxelmaxZ" value="1"/>
+	<default name="sigmaS" value="4"/>
+	<default name="sigmaA" value="0"/>
+	<integrator type="mlvoltracer">
+		<integer name="voxelgridres" value="$voxres"/>
+		<point name="voxelmin" x="$voxelminX" y="$voxelminY" z="$voxelminZ"/>
+		<point name="voxelmax" x="$voxelmaxX" y="$voxelmaxY" z="$voxelmaxZ"/>
+		<integer name="rrDepth" value="100000"/>
+	</integrator>		 
+	<medium id="medium" type="homogeneous">
+		<spectrum name="sigmaS" value="$sigmaS"/>
+		<spectrum name="sigmaA" value="$sigmaA"/>
+		<phase type="hg">
+			<float name="g" value="0.0"/>
+		</phase>
+	</medium>
+
+	<shape type="cube">
+		<transform name="toWorld">
+			<scale value="3"/>
+		</transform>
+
+		<ref id="medium" name="interior"/>
+		<bsdf type="thindielectric">
+			<string name="intIOR" value="air"/>
+			<string name="extIOR" value="air"/>
+		</bsdf>
+	</shape>
+
+	<sensor type="perspective">
+		<string name="fovAxis" value="smaller"/>
+		<float name="nearClip" value="0.001"/>
+		<float name="farClip" value="2800"/>
+		<float name="focusDistance" value="1000"/>
+		<transform name="toWorld">
+			<lookAt origin="0,0,-5" target="0, 0, 0" up="0, 1, 0"/>
+		</transform>
+		<float name="fov" value="60"/>
+		<sampler type="independent">
+			<integer name="sampleCount" value="$spp"/>
+		</sampler>
+		<film type="hdrfilm">
+			<integer name="width" value="32"/>
+			<integer name="height" value="32"/>
+			<rfilter type="box"/>
+			<boolean name="banner" value="false"/>
+		</film>
+	</sensor>
+
+</scene>
+

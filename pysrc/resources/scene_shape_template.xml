@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<scene version="0.6.0">
+	<default name="meshfile" value=""/>
+	<integrator type="path">
+	</integrator>		 
+
+	<sensor type="perspective">
+		<string name="fovAxis" value="smaller"/>
+		<float name="nearClip" value="0.001"/>
+		<float name="farClip" value="2800"/>
+		<float name="focusDistance" value="1000"/>
+		<transform name="toWorld">
+			<lookAt origin="0,0,-5" target="0, 0, 0" up="0, 1, 0"/>
+		</transform>
+		<float name="fov" value="60"/>
+		<sampler type="independent">
+			<integer name="sampleCount" value="1"/>
+		</sampler>
+		<film type="hdrfilm">
+			<integer name="width" value="32"/>
+			<integer name="height" value="32"/>
+			<rfilter type="box"/>
+			<boolean name="banner" value="false"/>
+		</film>
+	</sensor>
+
+	<shape type="obj">
+		<string name="filename" value="$meshfile"/>
+	</shape>
+
+	<emitter type="point">
+		<spectrum name="intensity" value="1"/>
+	</emitter>
+
+</scene>
+

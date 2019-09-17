@@ -1,3 +1,13 @@
+tmp_commands.txt
+pysrc/notebooks/nice_*.png
+pysrc/notebooks/vae_*.png
+pysrc/figures/slabs/scenes
+
+.vscode
+/xla
+perf.data
+perf.data.old
+
 # Documentation
 doc/apidocs/*
 doc/*.aux
@@ -15,7 +25,8 @@ build/release
 build/debug
 debian
 .sconsign.dblite
-config.py
+/config.py
+
 config.log
 *.pyc
 
@@ -38,13 +49,71 @@ Mitsuba.app
 .DS_Store
 
 # Imported geometry and some default output types
-/meshes
-/textures
-mitsuba.*.log
-*.exr
+# /meshes
+# /textures
+# mitsuba.*.log
+# *.exr
 
 # Eclipse CDT project files
 .externalToolBuilders
 .settings
 .cproject
 .project
+
+pysrc/tmp
+pysrc/graphs
+pysrc/scatterparams_*
+pysrc/outputs
+
+.ipynb_checkpoints
+
+
+
+## Core latex/pdflatex auxiliary files:
+
+report/edic_semester_report/report.pdf
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
+
+## Intermediate documents:
+*.dvi
+*.xdv
+*-converted-to.*
+# these rules might exclude image files for figures etc.
+# *.ps
+# *.eps
+# *.pdf
+
+## Generated if empty string is given at "Please type another file name for output:"
+.pdf
+
+## Bibliography auxiliary files (bibtex/biblatex/biber):
+*.bbl
+*.bcf
+*.blg
+*-blx.aux
+*-blx.bib
+*.run.xml
+
+## Build tool auxiliary files:
+*.fdb_latexmk
+*.synctex
+*.synctex(busy)
+*.synctex.gz
+*.synctex.gz(busy)
+*.pdfsync
+*.tex.bak
+
+## Auxiliary and intermediate files from other packages:
+# algorithms
+*.alg
+*.loa
