@@ -154,6 +154,7 @@
                     <xsd:group ref="objectGroup"/>
                     <xsd:element name="phase" type="phase"/>
                     <xsd:element name="bsdf" type="bsdf"/>
+                    <xsd:element name="texture" type="texture"/>
                 </xsd:choice>
             </xsd:extension>
         </xsd:complexContent>
