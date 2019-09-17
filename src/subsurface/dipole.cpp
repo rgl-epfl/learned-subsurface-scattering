@@ -26,35 +26,121 @@
 
 MTS_NAMESPACE_BEGIN
 
+
+inline double C1(const double n) {
+	double r;
+	if (n > 1.0) {
+		r = -9.23372 + n * (22.2272 + n * (-20.9292 + n * (10.2291 + n * (-2.54396 + 0.254913 * n))));
+	} else {
+		r = 0.919317 + n * (-3.4793 + n * (6.75335 + n *  (-7.80989 + n *(4.98554 - 1.36881 * n))));
+	}
+	return r / 2.0;
+}
+inline double C2(const double n) {
+	double r = -1641.1 + n * (1213.67 + n * (-568.556 + n * (164.798 + n * (-27.0181 + 1.91826 * n))));
+	r += (((135.926 / n) - 656.175) / n + 1376.53) / n;
+	return r / 3.0;
+}
+
 /**
  * Computes the combined diffuse radiant exitance
  * caused by a number of dipole sources
  */
 struct IsotropicDipoleQuery {
-#if !defined(MTS_SSE) || SPECTRUM_SAMPLES != 3
+#if !defined(MTS_SSE) || SPECTRUM_SAMPLES != 3 || true
     inline IsotropicDipoleQuery(const Spectrum &zr, const Spectrum &zv,
-        const Spectrum &sigmaTr, const Point &p)
-        : zr(zr), zv(zv), sigmaTr(sigmaTr), result(0.0f), p(p) {
+        const Spectrum &sigmaTr, const Point &p, const Vector &n, const Spectrum &sigmaT, const Spectrum &D, const Spectrum &de, float eta, bool useFrisvad)
+        : zr(zr), zv(zv), sigmaTr(sigmaTr), sigmaT(sigmaT), D(D), de(de), result(0.0f), p(p), n(n), eta(eta), useFrisvad(useFrisvad) {
+
+        Cp_norm = 1.0 / (1.0 - 2.0 * C1(1.0 / eta));
+        Cp = (1.0 - 2.0 * C1(eta)) / 4.0;
+        Ce = (1.0 - 3.0 * C2(eta)) / 2.0;
+        A = (1.0 - Ce) / (2.0 * Cp);
+    }
+
+
+    inline double Sp_d(const Vector& x, const Vector& w, const double& r,
+                    const Vector& n, const int j) {
+        // evaluate the profile
+        Float s_tr_r = sigmaTr[j] * r;
+        Float s_tr_r_one = 1.0 + s_tr_r;
+        Float x_dot_w = dot(x, w);
+        Float r_sqr = r * r;
+        Float t0 = Cp_norm * (1.0 / (4.0 * M_PI * M_PI)) * exp(-s_tr_r) / (r * r_sqr);
+        Float t1 = r_sqr / D[j] + 3.0 * s_tr_r_one * x_dot_w;
+        Float t2 = 3.0 * D[j] * s_tr_r_one * dot(w, n);
+        Float t3 = (s_tr_r_one + 3.0 * D[j] * (3.0 * s_tr_r_one + s_tr_r * s_tr_r) / r_sqr * x_dot_w) * dot(x, n);
+        return t0 * (Cp * t1 - Ce * (t2 - t3));
+    }
+    inline Float frisvad_bssrdf(const Point& xi, const Vector& ni, const Vector& wi,
+                                const Point& xo, const Vector& no, const int j) {
+
+        if (dot(ni, wi) < 0)
+            return 0.0f;
+
+        // distance
+        const Vector xoxi = xo - xi;
+        const Float rSqr = xoxi.lengthSquared();
+
+        // modified normal
+        const Vector ni_s = cross(normalize(xoxi), normalize(cross(ni,xoxi)));
+        // directions of ray sources
+        const Float nnt = 1.0 / eta;
+        const Float ddn = -dot(wi, ni);
+        const Vector wr = normalize(wi * -nnt - ni * (ddn * nnt + sqrt(1.0 - nnt * nnt * (1.0 - ddn * ddn))));
+        const Vector wv = wr - ni_s * (2.0 * dot(wr, ni_s));
+
+        // distance to real sources
+        const Float cos_beta = -sqrt(std::max((rSqr - dot(xoxi, wr) * dot(xoxi, wr)), 0.0f) / (rSqr + de[j] * de[j]));
+
+        Float dr;
+        const Float mu0 = -dot(no, wr);
+        if (mu0 > 0.0) {
+            dr = sqrt((D[j] * mu0) * ((D[j] * mu0) - de[j] * cos_beta * 2.0) + rSqr);
+        } else {
+            dr = sqrt(1.0 / (3.0 * sigmaT[j] * 3.0 * sigmaT[j]) + rSqr);
+        }
+
+        // distance to virtual source
+        const Vector xoxv = xo - (xi + ni_s * (2.0 * A * de[j]));
+        const Float dv = xoxv.length();
+
+        // BSSRDF
+        const Float result = Sp_d(xoxi, wr, dr, no, j) - Sp_d(xoxv, wv, dv, no, j);
+
+        // clamping to zero
+        return (result < 0.0) ? 0.0 : result;
     }
 
     inline void operator()(const IrradianceSample &sample) {
         Spectrum rSqr = Spectrum((p - sample.p).lengthSquared());
 
-        /* Distance to the real source */
-        Spectrum dr = (rSqr + zr*zr).sqrt();
 
-        /* Distance to the image point source */
-        Spectrum dv = (rSqr + zv*zv).sqrt();
+        if (useFrisvad) {
+            /* Distance to the real source */
 
-        Spectrum C1 = zr * (sigmaTr + Spectrum(1.0f) / dr);
-        Spectrum C2 = zv * (sigmaTr + Spectrum(1.0f) / dv);
+            Spectrum dMo(0.0f);
+            for (int i = 0; i < 3; ++i) {
+                dMo[i] = frisvad_bssrdf(sample.p, sample.n, sample.wi, p, n, i);
+            }
+            result += dMo * sample.E * sample.area;
+        } else {
+            /* Distance to the real source */
+            Spectrum dr = (rSqr + zr*zr).sqrt();
 
-        /* Do not include the reduced albedo - will be canceled out later */
-        Spectrum dMo = Spectrum(INV_FOURPI) *
-             (C1 * ((-sigmaTr * dr).exp()) / (dr * dr)
-            + C2 * ((-sigmaTr * dv).exp()) / (dv * dv));
+            /* Distance to the image point source */
+            Spectrum dv = (rSqr + zv*zv).sqrt();
 
-        result += dMo * sample.E * sample.area;
+            Spectrum C1 = zr * (sigmaTr + Spectrum(1.0f) / dr);
+            Spectrum C2 = zv * (sigmaTr + Spectrum(1.0f) / dv);
+
+            /* Do not include the reduced albedo - will be canceled out later */
+            Spectrum dMo = Spectrum(INV_FOURPI) *
+                (C1 * ((-sigmaTr * dr).exp()) / (dr * dr)
+                + C2 * ((-sigmaTr * dv).exp()) / (dv * dv));
+
+            result += dMo * sample.E * sample.area;
+        }
     }
 
     inline const Spectrum &getResult() const {
@@ -62,6 +148,10 @@ struct IsotropicDipoleQuery {
     }
 
     const Spectrum &zr, &zv, &sigmaTr;
+    Spectrum sigmaT, D, de;
+    double Cp_norm, Cp, Ce, A;
+    float eta;
+
     Spectrum result;
 #else
     inline IsotropicDipoleQuery(const Spectrum &_zr, const Spectrum &_zv,
@@ -103,8 +193,9 @@ struct IsotropicDipoleQuery {
     __m128 zr, zv, zrSqr, zvSqr, sigmaTr;
     SSEVector result;
 #endif
-
+    bool useFrisvad;
     Point p;
+    Vector n;
 };
 
 static ref<Mutex> irrOctreeMutex = new Mutex();
@@ -289,6 +380,9 @@ public:
         /* Error threshold - lower means better quality */
         m_quality = props.getFloat("quality", 0.2f);
 
+
+        m_useFrisvad = props.getBoolean("useFrisvad", false);
+
         /* Asymmetry parameter of the phase function */
         m_octreeResID = -1;
 
@@ -337,8 +431,9 @@ public:
             const Intersection &its, const Vector &d, int depth) const {
         if (!m_active || dot(its.shFrame.n, d) < 0)
             return Spectrum(0.0f);
-        IsotropicDipoleQuery query(m_zr, m_zv, m_sigmaTr, its.p);
 
+
+        IsotropicDipoleQuery query(m_zr, m_zv, m_sigmaTr, its.p, its.shFrame.n, m_sigmaT, m_D, m_de, m_eta, m_useFrisvad);
         m_octree->performQuery(query);
         Spectrum result(query.getResult() * INV_PI);
 
@@ -366,6 +461,12 @@ public:
 
         /* Effective transport extinction coefficient */
         m_sigmaTr = (m_sigmaA * m_sigmaTPrime * 3.0f).sqrt();
+
+
+        m_sigmaT = m_sigmaS + m_sigmaA;
+        m_D = (1.0f / 3.0f) * (1.0f / m_sigmaTPrime);
+        Spectrum albedoPrime = m_sigmaSPrime / m_sigmaTPrime;
+        m_de = 2.131 * m_D / albedoPrime.sqrt();
 
         /* Distance of the two dipole point sources to the surface */
         m_zr = mfp;
@@ -398,7 +499,7 @@ public:
         const Sensor *sensor = scene->getSensor();
         ref<IrradianceSamplingProcess> proc = new IrradianceSamplingProcess(
             points, 1024, m_irrSamples, m_irrIndirect,
-            sensor->getShutterOpen() + 0.5f * sensor->getShutterOpenTime(), job);
+            sensor->getShutterOpen() + 0.5f * sensor->getShutterOpenTime(), job, m_useFrisvad);
 
         /* Create a sampler instance for every core */
         ref<Sampler> sampler = static_cast<Sampler *> (PluginManager::getInstance()->
@@ -464,6 +565,8 @@ public:
 private:
     Float m_radius, m_sampleMultiplier;
     Float m_Fdr, m_quality, m_eta;
+
+    Spectrum m_D, m_de, m_sigmaT;
     Spectrum m_sigmaS, m_sigmaA, m_g;
     Spectrum m_sigmaTr, m_zr, m_zv;
     Spectrum m_sigmaSPrime, m_sigmaTPrime;
@@ -472,6 +575,7 @@ private:
     int m_octreeResID, m_octreeIndex;
     int m_irrSamples;
     bool m_irrIndirect;
+    bool m_useFrisvad;
 };
 
 MTS_IMPLEMENT_CLASS_S(IsotropicDipole, false, Subsurface)

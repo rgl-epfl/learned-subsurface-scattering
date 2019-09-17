@@ -148,12 +148,16 @@ public:
     inline void generate1D(Float *samples, size_t sampleCount) {
         #if defined(SINGLE_PRECISION)
             uint32_t scramble = m_random->nextULong() & 0xFFFFFFFF;
-            for (size_t i = 0; i < sampleCount; ++i)
+            for (size_t i = 0; i < sampleCount; ++i) {
                 samples[i] = radicalInverse2Single((uint32_t) i, scramble);
+                samples[i] = std::min(samples[i], 1.0f - Epsilon);
+            }
         #else
             uint64_t scramble = m_random->nextULong();
-            for (size_t i = 0; i < sampleCount; ++i)
+            for (size_t i = 0; i < sampleCount; ++i) {
                 samples[i] = radicalInverse2Double(i, scramble);
+                samples[i] = std::min(samples[i], 1.0 - Epsilon);
+            }
         #endif
 
         m_random->shuffle(samples, samples + sampleCount);
@@ -168,15 +172,21 @@ public:
 
             scramble.qword = m_random->nextULong();
 
-            for (size_t i = 0; i < sampleCount; ++i)
+            for (size_t i = 0; i < sampleCount; ++i) {
                 samples[i] = sample02Single((uint32_t) i, scramble.dword);
+                samples[i].x = std::min(samples[i].x, 1.0f - Epsilon);
+                samples[i].y = std::min(samples[i].y, 1.0f - Epsilon);
+            }
         #else
             uint64_t scramble[2];
             scramble[0] = m_random->nextULong();
             scramble[1] = m_random->nextULong();
 
-            for (size_t i = 0; i < sampleCount; ++i)
+            for (size_t i = 0; i < sampleCount; ++i) {
                 samples[i] = sample02Double(i, scramble);
+                samples[i].x = std::min(samples[i].x, 1.0 - Epsilon);
+                samples[i].y = std::min(samples[i].y, 1.0 - Epsilon);
+            }
         #endif
 
         m_random->shuffle(samples, samples + sampleCount);

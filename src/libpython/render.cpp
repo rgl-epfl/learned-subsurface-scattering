@@ -1,3 +1,13 @@
+
+// #define DEBUG_VAE_SCATTER
+
+#ifdef DEBUG_VAE_SCATTER
+#include "../subsurface/vaehelper.h"
+#include "../subsurface/vaehelper.cpp"
+#endif
+
+#include <Eigen/Core>
+
 #include "base.h"
 #include <mitsuba/render/scene.h>
 #include <mitsuba/render/scenehandler.h>
@@ -5,6 +15,17 @@
 #include <mitsuba/render/renderjob.h>
 #include <mitsuba/render/noise.h>
 #include "../shapes/instance.h"
+#include <mitsuba/render/voxel_util.h>
+
+#include <mitsuba/render/project_gaussian.h>
+#include <mitsuba/render/sss_particle_tracer.h>
+#include <mitsuba/render/polynomials.h>
+#include <mitsuba/render/mediumparameters.h>
+#include <mitsuba/render/mesh_histogram.h>
+#include <mitsuba/render/bluenoise.h>
+
+
+#include <iostream>
 
 using namespace mitsuba;
 
@@ -219,6 +240,535 @@ static ref<TriMesh> trimesh_fromBlender(const std::string &name,
         reinterpret_cast<void *>(colPtr), matID);
 }
 
+
+bp::dict trainingSamplesToDict(const std::vector<Volpath3D::TrainingSample> &samples) {
+    bp::list inPos, inDir, outPos, outDir, inNormal, outNormal, throughput, usedAlbedo, usedSigmaT, usedG, usedIor, bounces, absorptionProb, absorptionProbVar, shapeCoeffs, shCoeffs;
+    for (auto &sample : samples) {
+        inPos.append(sample.pIn);
+        outPos.append(sample.pOut);
+        inDir.append(sample.dIn);
+        outDir.append(sample.dOut);
+        inNormal.append(sample.inNormal);
+        outNormal.append(sample.outNormal);
+        throughput.append(sample.throughput);
+        usedAlbedo.append(sample.albedo);
+        usedSigmaT.append(sample.sigmaT);
+        usedG.append(sample.g);
+        usedIor.append(sample.ior);
+        bounces.append(sample.bounces);
+        absorptionProb.append(sample.absorptionProb);
+        absorptionProbVar.append(sample.absorptionProbVar);
+        bp::list coeffs;
+        for (auto c : sample.shapeCoeffs) {
+            coeffs.append(c);
+        }
+        shapeCoeffs.append(coeffs);
+
+        bp::list pShCoeffs;
+        for (auto c : sample.shCoefficients) {
+            pShCoeffs.append(c);
+        }
+        shCoeffs.append(pShCoeffs);
+    }
+    bp::dict result;
+    result["inPos"] = inPos;
+    result["inDir"] = inDir;
+    result["outPos"] = outPos;
+    result["outDir"] = outDir;
+    result["inNormal"] = inNormal;
+    result["outNormal"] = outNormal;
+    result["throughput"] = throughput;
+    result["absorptionProb"] = absorptionProb;
+    result["absorptionProbVar"] = absorptionProbVar;
+    result["albedo"] = usedAlbedo;
+    result["sigmaT"] = usedSigmaT;
+    result["g"] = usedG;
+    result["ior"] = usedIor;
+    result["bounces"] = bounces;
+    result["shapeCoeffs"] = shapeCoeffs;
+    result["shCoeffs"] = shCoeffs;
+    return result;
+}
+
+ref<Sampler> createSampler(int seed) {
+    Properties props = Properties("independent");
+    props.setInteger("seed", seed);
+    ref<Sampler> sampler = static_cast<Sampler *>(PluginManager::getInstance()->createObject(MTS_CLASS(Sampler), props));
+    sampler->configure();
+    return sampler;
+}
+
+
+bp::list azimuthSpaceTransform(const Vector &refDir, const Vector &normal) {
+    Matrix3x3 transf = Volpath3D::azimuthSpaceTransform(refDir, normal);
+    bp::list ret;
+    for (int i = 0; i < 3; ++i) {
+        bp::list ret2;
+        for (int j = 0; j < 3; ++j) {
+            ret2.append(transf.m[i][j]);
+        }
+        ret.append(ret2);
+    }
+    return ret;
+}
+
+
+bp::dict sampleVolpath3D(const Scene *scene, const Shape *shape, const bp::list &mediumParameters, int nSamples,
+                         int batchSize, int nAbsSamples, bool ignoreZeroScatter, bool disableRR, int seed) {
+    int nParams = bp::len(mediumParameters);
+    std::vector<MediumParameters> mediumParamsVector(nParams);
+    for (int i = 0; i < nParams; ++i) {
+        mediumParamsVector[i] = bp::extract<MediumParameters>(mediumParameters[i]);
+    }
+    ref<Sampler> sampler = createSampler(seed);
+
+    Volpath3D::SamplingConfig config;
+    config.disableRR         = disableRR;
+    config.ignoreZeroScatter = ignoreZeroScatter;
+
+    std::vector<Volpath3D::TrainingSample> samples = Volpath3D::samplePaths(
+        scene, shape, mediumParamsVector, config, nSamples, batchSize, nAbsSamples, nullptr, nullptr, sampler.get());
+    return trainingSamplesToDict(samples);
+}
+
+bp::dict sampleVolpathPoly3D(const Shape *shape, const bp::list &mediumParameters,
+                             int nSamples, int batchSize, int nAbsSamples,
+                             bool ignoreZeroScatter, bool disableRR,
+                             bool importanceSamplePolys, const ConstraintKdTree *kdtree,
+                             bool fixedInDir, int seed, const PolyUtils::PolyFitConfig &polyConfig) {
+
+    ref<Sampler> sampler = createSampler(seed);
+    int nParams = bp::len(mediumParameters);
+    std::vector<MediumParameters> mediumParamsVector(nParams);
+    for (int i = 0; i < nParams; ++i) {
+        mediumParamsVector[i] = bp::extract<MediumParameters>(mediumParameters[i]);
+    }
+
+    Vector3f normalVector(0.0f, 0.0f, -1.0f); // This inDir is in local space and will be transformed later on
+
+    Volpath3D::SamplingConfig config;
+    config.disableRR = disableRR;
+    config.ignoreZeroScatter = ignoreZeroScatter;
+    config.importanceSamplePolynomials = importanceSamplePolys;
+    config.polyCfg = polyConfig;
+
+    std::vector<Volpath3D::TrainingSample> samples = Volpath3D::samplePaths(
+        nullptr, shape, mediumParamsVector, config,
+        nSamples, batchSize, nAbsSamples, nullptr,
+        fixedInDir ? &normalVector : nullptr, sampler.get(), nullptr, kdtree);
+    return trainingSamplesToDict(samples);
+}
+
+bp::dict sampleVolpath3DFixedStart(
+    const Scene *scene, const Shape *shape, const bp::list &mediumParameters,
+    int nSamples, int batchSize, int nAbsSamples, Point3 &refInPos,
+    Vector3 &refInDir, bool ignoreZeroScatter, bool disableRR, int seed) {
+
+    ref<Sampler> sampler = createSampler(seed);
+
+    int nParams = bp::len(mediumParameters);
+    std::vector<MediumParameters> mediumParamsVector(nParams);
+    for (int i = 0; i < nParams; ++i) {
+        mediumParamsVector[i] = bp::extract<MediumParameters>(mediumParameters[i]);
+    }
+
+    Volpath3D::SamplingConfig config;
+    config.disableRR = disableRR;
+    config.ignoreZeroScatter = ignoreZeroScatter;
+
+    std::vector<Volpath3D::TrainingSample> samples = Volpath3D::samplePaths(
+        scene, shape, mediumParamsVector, config,
+        nSamples, batchSize, nAbsSamples,  &refInPos, &refInDir, sampler.get());
+    return trainingSamplesToDict(samples);
+}
+
+int nCoeffsToPolyorder(int nCoeffs) {
+    std::vector<int> a = {1, 4, 10, 20, 35, 56, 84, 120, 165, 220};
+    for (int i = 0; i < a.size(); ++i) {
+        if (nCoeffs == a[i]) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bp::list adjustRayForPolynomialTracing(Point3 &refInPos, Vector3 &refInDir, const bp::list &polynomial, const Point &polyRefPoint, const Vector &polyRefDir, bool useLocalDir,
+    float scaleFactor, const Vector &targetNormal) {
+    std::vector<float> polyVector(bp::len(polynomial));
+    for (int i = 0; i < bp::len(polynomial); ++i) {
+        polyVector[i] = bp::extract<float>(polynomial[i]);
+    }
+
+    int polyOrder = nCoeffsToPolyorder(polyVector.size());
+    if (polyOrder < 0) {
+        std::cout << "Invalid polynomial!\n";
+        return bp::list();
+    }
+
+    PolyUtils::Polynomial poly;
+    poly.coeffs = polyVector;
+    poly.refPos = polyRefPoint;
+    poly.refDir = polyRefDir;
+    poly.useLocalDir = useLocalDir;
+    poly.scaleFactor = scaleFactor;
+    poly.order = polyOrder;
+
+    Ray ray(refInPos, refInDir, 0.0f);
+    bool success = PolyUtils::adjustRayForPolynomialTracingFull(ray, poly, targetNormal);
+
+    bp::list ret;
+    ret.append(success);
+    ret.append(ray.o);
+    ret.append(ray.d);
+    return ret;
+}
+
+
+bp::tuple adjustDirForPolynomialTracing(Point3 &refInPos, Vector3 &refInDir, const bp::list &polynomial, 
+                                       const Point &polyRefPoint, 
+                                       float scaleFactor, const Vector &targetNormal) {
+    std::vector<float> polyVector(bp::len(polynomial));
+    for (int i = 0; i < bp::len(polynomial); ++i) {
+        polyVector[i] = bp::extract<float>(polynomial[i]);
+    }
+    int polyOrder = nCoeffsToPolyorder(polyVector.size());
+    if (polyOrder < 0) {
+        std::cout << "Invalid polynomial!\n";
+        return bp::tuple();
+    }
+
+    PolyUtils::Polynomial poly;
+    poly.coeffs = polyVector;
+    poly.refPos = polyRefPoint;
+    poly.refDir = Vector(0,1,0); // assume world space
+    poly.useLocalDir = false;
+    poly.scaleFactor = scaleFactor;
+    poly.order = polyOrder;
+
+    Ray ray(refInPos, refInDir, 0.0f);
+    Vector polyNormal = PolyUtils::adjustRayForPolynomialTracing(ray, poly, targetNormal);
+
+    return bp::make_tuple(ray.d, polyNormal);
+}
+
+
+bp::dict samplePolynomial3DFixedStart(const bp::list &polynomial, const Point &polyRefPoint, const Vector &polyRefDir, bool useLocalDir,
+    float scaleFactor,
+    const bp::list &mediumParameters,
+    int nSamples, int batchSize, int nAbsSamples,
+    Point3 &refInPos, Vector3 &refInDir, bool ignoreZeroScatter, bool disableRR, int seed) {
+
+    ref<Sampler> sampler = createSampler(seed);
+    int nParams = bp::len(mediumParameters);
+    std::vector<MediumParameters> mediumParamsVector(nParams);
+    for (int i = 0; i < nParams; ++i) {
+        mediumParamsVector[i] = bp::extract<MediumParameters>(mediumParameters[i]);
+    }
+
+    std::vector<float> polyVector(bp::len(polynomial));
+    for (int i = 0; i < bp::len(polynomial); ++i) {
+        polyVector[i] = bp::extract<float>(polynomial[i]);
+    }
+
+    int polyOrder = nCoeffsToPolyorder(polyVector.size());
+    if (polyOrder < 0) {
+        std::cout << "Invalid polynomial!\n";
+        return bp::dict();
+    }
+
+    Volpath3D::SamplingConfig config;
+    config.disableRR = disableRR;
+    config.ignoreZeroScatter = ignoreZeroScatter;
+
+    PolyUtils::Polynomial poly;
+    poly.coeffs = polyVector;
+    poly.refPos = polyRefPoint;
+    poly.refDir = polyRefDir;
+    poly.useLocalDir = useLocalDir;
+    poly.scaleFactor = scaleFactor;
+    poly.order = polyOrder;
+
+    std::vector<Volpath3D::TrainingSample> samples = Volpath3D::samplePaths(nullptr, nullptr, mediumParamsVector, config,
+                                                                            nSamples, batchSize, nAbsSamples, &refInPos,
+                                                                            &refInDir, sampler.get(), &poly, nullptr);
+
+    // Create dict to return
+    return trainingSamplesToDict(samples);
+}
+
+
+template <typename T> bp::list toNestedList(std::vector<std::vector<T>> &vec) {
+
+    bp::list results;
+    for (auto &l : vec) {
+        bp::list c;
+        for (auto &p : l) {
+            c.append(p);
+        }
+        results.append(c);
+    }
+    return results;
+}
+
+
+template <typename T> bp::list toList(std::vector<T> &vec) {
+    bp::list results;
+    for (auto &v : vec)
+        results.append(v);
+    return results;
+}
+
+
+
+
+bp::tuple getLocalPoints(const Point &queryLoc, Float kernelEps, const std::string &kernel, ConstraintKdTree *kdtree) {
+
+    std::vector<Point> queryVector;
+    queryVector.push_back(queryLoc);
+
+    std::vector<std::vector<Point>> posConstraints;
+    std::vector<std::vector<Vector>> norConstraints;
+    std::vector<std::vector<float>> weights;
+    std::tie(posConstraints, norConstraints, weights) =
+        PolyUtils::getLocalPoints(queryVector, kernelEps, kernel, kdtree);
+
+    bp::list posResults    = toList(posConstraints[0]);
+    bp::list norResults    = toList(norConstraints[0]);
+    bp::list weightResults = toList(weights[0]);
+    return bp::make_tuple(posResults, norResults, weightResults);
+}
+
+
+bp::tuple fitShapePolynomials(const PolyUtils::PolyFitRecord &pfRec, ConstraintKdTree *kdtree) {
+    PolyUtils::Polynomial poly;
+    std::vector<Point> posConstraints;
+    std::vector<Vector> normalConstraints;
+    std::tie(poly, posConstraints, normalConstraints) = PolyUtils::fitPolynomial(pfRec, kdtree);
+    bp::list result;
+    for (auto &c : poly.coeffs)
+        result.append(c);
+    bp::list posResults;
+    for (auto &p : posConstraints)
+        posResults.append(p);
+    bp::list norResults;
+    for (auto &n : normalConstraints)
+        norResults.append(n);
+    return bp::make_tuple(result, posResults, norResults);
+}
+
+void constraintKdTreeBuild(ConstraintKdTree *tree, const bp::list &sampledP, const bp::list &sampledN) {
+    std::vector<Point> sampledPVector(bp::len(sampledP));
+    std::vector<Vector> sampledNVector(bp::len(sampledN));
+    for (int i = 0; i < bp::len(sampledP); ++i) {
+        sampledPVector[i] = bp::extract<Point>(sampledP[i]);
+        sampledNVector[i] = bp::extract<Vector>(sampledN[i]);
+    }
+
+    tree->build(sampledPVector, sampledNVector);
+}
+
+
+#ifdef DEBUG_VAE_SCATTER
+void vaeHelperPrepare(VaeHelper *vaehelper, const Scene *scene, const bp::list &shapes, const Spectrum &sigmaT,
+                      const Spectrum &albedo, float g, float eta, const std::string &modelName) {
+    std::vector<Shape*> shapesVec;
+    for (int i = 0; i < bp::len(shapes); ++i) {
+        shapesVec.push_back(bp::extract<Shape*>(shapes[i]));
+    }
+    vaehelper->prepare(scene, shapesVec, sigmaT, albedo, g, eta, modelName);
+}
+
+
+bp::list vaeHelperSample(VaeHelper *vaehelper, const Scene *scene, int nSamples, const Point &p, const Vector &d, const Spectrum &sigmaT,
+const Spectrum &albedo, float g, float eta, const Intersection *its, bool projectSamples) {
+    ref<Sampler> sampler = static_cast<Sampler *> (PluginManager::getInstance()->
+            createObject(MTS_CLASS(Sampler), Properties("independent")));
+    bp::list result;
+    // bp::list shapeCoeffsList;
+    std::vector<ScatterSamplingRecord> sRec(1);
+    for (int i = 0; i < nSamples; ++i) {
+        vaehelper->sample(scene, p, d, sigmaT, albedo, g, eta, sampler, its, 1, projectSamples, sRec);
+
+        if (sRec[0].isValid || !projectSamples) {
+            result.append(sRec[0].p);
+            // bp::list shapeCoeffs2;
+            // for (auto &f : shapeCoeffs)
+            //     shapeCoeffs2.append(f);
+            // shapeCoeffsList.append(shapeCoeffs2);
+        }
+    }
+    // return bp::make_tuple(result, shapeCoeffsList);
+    return result;
+}
+
+#endif
+
+bp::tuple projectPointsAlongPolynomialSurface(const Scene *scene,
+                                                const Point &refPoint,
+                                                const Vector &refDir,
+                                                const bp::list &points,
+                                                const bp::list &polyCoefficients,
+                                                size_t polyOrder,
+                                                bool useLocalSpace,
+                                                Float scaleFactor) {
+
+
+    std::vector<Point> pointsVector(bp::len(points));
+    std::vector<Float> polyCoeffsVector(bp::len(polyCoefficients));
+
+    Eigen::VectorXf polyEigen(PolyUtils::nPolyCoeffs(polyOrder));
+    for (int i = 0; i < polyEigen.size(); ++i) {
+        polyEigen[i] = bp::extract<Float>(polyCoefficients[i]);
+    }
+
+    float kernelEps = 1.0f / (scaleFactor * scaleFactor);
+    bp::list results, resultsValid, resultsN;
+    for (size_t i = 0; i < bp::len(points); ++i) {
+        ScatterSamplingRecord sRec;
+        sRec.p = bp::extract<Point>(points[i]);
+        sRec.isValid = true;
+        PolyUtils::projectPointsToSurface(scene, refPoint, refDir, sRec, polyEigen, polyOrder, useLocalSpace, scaleFactor, kernelEps);
+
+        results.append(sRec.p);
+        resultsN.append(sRec.n);
+        resultsValid.append(sRec.isValid);
+    }
+
+    return bp::make_tuple(results, resultsN, resultsValid);
+}
+
+bp::list rotatePolynomial(const bp::list &coeffs,
+                           const Vector &s,
+                           const Vector &t,
+                           const Vector &n,
+                           size_t order) {
+
+    std::vector<float> coeffsVec(bp::len(coeffs));
+    for (int i = 0; i < bp::len(coeffs); ++i) {
+        coeffsVec[i] = bp::extract<float>(coeffs[i]);
+    }
+    std::vector<float> tmpCoeffs(coeffsVec.size(), 0.0f);
+    switch (order) {
+        case 2:
+            PolyUtils::rotatePolynomial<2>(coeffsVec, tmpCoeffs, s, t, n);
+            break;
+        case 3:
+            PolyUtils::rotatePolynomial<3>(coeffsVec, tmpCoeffs, s, t, n);
+            break;
+        default:
+            std::cout << "Cannot handle poly of order " << order << std::endl;
+    }
+
+
+    bp::list results;
+    for (int i = 0; i < coeffsVec.size(); ++i) {
+        results.append(coeffsVec[i]);
+    }
+    return results;
+}
+
+
+Intersection intersectPolynomial(
+    const Ray &ray,
+    const bp::list &polynomial,
+    const Point &refPoint,
+    const Vector &refDir,
+    int polyOrder,
+    Float stepSize,
+    bool useLocalDir,
+    Float scaleFactor) {
+    std::vector<float> coeffsVec(bp::len(polynomial));
+    for (int i = 0; i < bp::len(polynomial); ++i) {
+        coeffsVec[i] = bp::extract<float>(polynomial[i]);
+    }
+    PolyUtils::Polynomial poly;
+    poly.coeffs = coeffsVec;
+    poly.refPos = refPoint;
+    poly.refDir = refDir;
+    poly.order = polyOrder;
+    poly.useLocalDir = useLocalDir;
+    poly.scaleFactor = scaleFactor;
+    return PolyUtils::intersectPolynomial(ray, poly, stepSize);
+}
+
+bp::list kernelEpsilon(bp::list g, bp::list sigmaT, bp::list albedo) {
+    bp::list result;
+    for (int i = 0; i < bp::len(g); ++i) {
+        MediumParameters m;
+        m.g = bp::extract<float>(g[i]);
+        m.sigmaT = Spectrum(bp::extract<float>(sigmaT[i]));
+        m.albedo = Spectrum(bp::extract<float>(albedo[i]));
+        m.eta = 1.0f; // ignored for now
+        result.append(PolyUtils::getKernelEps(m));
+    }
+    return result;
+}
+
+bp::tuple sampleSurface(
+    Scene *scene,
+    Shape *shape,
+    int nSamples,
+    bool useBlueNoise,
+    Float blueNoiseRadius)  {
+    Sampler *sampler = scene->getSampler();
+
+    std::vector<Point3f> sampled_p;
+    std::vector<Vector3f> sampled_n;
+    if (useBlueNoise) {
+        std::vector<Shape *> shapes;
+        shapes.push_back(shape);
+        Float surfaceArea;
+        AABB aabb;
+        blueNoisePointSet(scene, shapes, blueNoiseRadius, sampled_p, sampled_n, surfaceArea, aabb, nullptr);
+    } else {
+        for (int i = 0; i < nSamples; ++i) {
+            PositionSamplingRecord pRec(0.0f);
+            shape->samplePosition(pRec, sampler->next2D());
+            sampled_p.push_back(pRec.p);
+            sampled_n.push_back(pRec.n);
+        }
+    }
+
+    bp::list sampled_p_list, sampled_n_list;
+    for (size_t i = 0; i < sampled_p.size(); ++i) {
+    // for (size_t i = 0; i < samples->size(); ++i) {
+        sampled_p_list.append(sampled_p[i].x);
+        sampled_p_list.append(sampled_p[i].y);
+        sampled_p_list.append(sampled_p[i].z);
+
+        sampled_n_list.append(sampled_n[i].x);
+        sampled_n_list.append(sampled_n[i].y);
+        sampled_n_list.append(sampled_n[i].z);
+
+        // sampled_p_list.append((*samples)[i].p.x);
+        // sampled_p_list.append((*samples)[i].p.y);
+        // sampled_p_list.append((*samples)[i].p.z);
+
+        // sampled_n_list.append((*samples)[i].n.x);
+        // sampled_n_list.append((*samples)[i].n.y);
+        // sampled_n_list.append((*samples)[i].n.z);
+
+    }
+
+    return bp::make_tuple(sampled_p_list, sampled_n_list);
+}
+
+static bp::list computeMeshHistogram(const Scene *scene, const bp::list &points, const bp::list &projDirs) {
+    std::vector<Point> pointVector(bp::len(points));
+    std::vector<Vector> projDirsVector(bp::len(projDirs));
+    for (int i = 0; i < bp::len(points); ++i) {
+        pointVector[i] = bp::extract<Point>(points[i]);
+        projDirsVector[i] = bp::extract<Vector>(projDirs[i]);
+    }
+    std::vector<float> result = MeshHistogram::compute(scene, pointVector, projDirsVector);
+    bp::list output;
+    for (size_t i = 0; i < result.size(); ++i) {
+        output.append(result[i]);
+    }
+    return output;
+}
+
+
 class RenderListenerWrapper : public RenderListener {
 public:
     RenderListenerWrapper(PyObject *self) : m_self(self), m_locked(false) { Py_INCREF(m_self); }
@@ -402,7 +952,61 @@ void export_render() {
         .def("getMeshes", &scene_getMeshes)
         .def("getEmitters", &scene_getEmitters)
         .def("getMedia", &scene_getMedia)
-        .def("getKDTree", scene_getKDTree, BP_RETURN_VALUE);
+        .def("getKDTree", scene_getKDTree, BP_RETURN_VALUE)
+        .def("sampleSurface", &sampleSurface, BP_RETURN_VALUE)
+        .def("meshHistogram", &computeMeshHistogram, BP_RETURN_VALUE);
+
+
+    bp::class_<MediumParameters>("MediumParameters", bp::init<>())
+        .def_readwrite("albedo", &MediumParameters::albedo)
+        .def_readwrite("sigmaT", &MediumParameters::sigmaT)
+        .def_readwrite("g", &MediumParameters::g)
+        .def_readwrite("ior", &MediumParameters::eta);
+
+    bp::class_<PolyUtils::PolyFitConfig>("PolyFitConfig", bp::init<>())
+        .def_readwrite("regularization", &PolyUtils::PolyFitConfig::regularization)
+        .def_readwrite("useSvd", &PolyUtils::PolyFitConfig::useSvd)
+        .def_readwrite("useLightspace", &PolyUtils::PolyFitConfig::useLightspace)
+        .def_readwrite("order", &PolyUtils::PolyFitConfig::order)
+        .def_readwrite("hardSurfaceConstraint", &PolyUtils::PolyFitConfig::hardSurfaceConstraint)
+        .def_readwrite("globalConstraintWeight", &PolyUtils::PolyFitConfig::globalConstraintWeight)
+        .def_readwrite("kdTreeThreshold", &PolyUtils::PolyFitConfig::kdTreeThreshold)
+        .def_readwrite("extractNormalHistogram", &PolyUtils::PolyFitConfig::extractNormalHistogram)
+        .def_readwrite("useSimilarityKernel", &PolyUtils::PolyFitConfig::useSimilarityKernel);
+
+    bp::class_<PolyUtils::PolyFitRecord>("PolyFitRecord", bp::init<>())
+        .def_readwrite("config", &PolyUtils::PolyFitRecord::config)
+        .def_readwrite("p", &PolyUtils::PolyFitRecord::p)
+        .def_readwrite("d", &PolyUtils::PolyFitRecord::d)
+        .def_readwrite("n", &PolyUtils::PolyFitRecord::n)
+        .def_readwrite("medium", &PolyUtils::PolyFitRecord::medium)
+        .def_readwrite("kernelEps", &PolyUtils::PolyFitRecord::kernelEps);
+
+    BP_STRUCT(Volpath3D, bp::init<>())
+        .def("sample", &sampleVolpath3D, BP_RETURN_VALUE)
+        .def("adjustRayForPolynomialTracing", &adjustRayForPolynomialTracing, BP_RETURN_VALUE)
+        .def("adjustDirForPolynomialTracing", &adjustDirForPolynomialTracing, BP_RETURN_VALUE)
+        .def("azimuthSpaceTransform", &azimuthSpaceTransform, BP_RETURN_VALUE)
+        .def("samplePoly", &sampleVolpathPoly3D, BP_RETURN_VALUE)
+        .def("sampleFixedStart", &sampleVolpath3DFixedStart, BP_RETURN_VALUE)
+        .def("samplePolyFixedStart", &samplePolynomial3DFixedStart, BP_RETURN_VALUE)
+        .def("fitPolynomials", &fitShapePolynomials, BP_RETURN_VALUE)
+        .def("getLocalPoints", &getLocalPoints, BP_RETURN_VALUE)
+        .def("projectToSurface", &projectPointsAlongPolynomialSurface, BP_RETURN_VALUE)
+        .def("intersectPolynomial", &intersectPolynomial, BP_RETURN_VALUE)
+        .def("kernelEpsilon", &kernelEpsilon, BP_RETURN_VALUE)
+        .def("rotatePolynomial", &rotatePolynomial, BP_RETURN_VALUE);
+
+    BP_STRUCT(ConstraintKdTree, bp::init<>())
+        .def("build", &constraintKdTreeBuild, BP_RETURN_VALUE);
+
+#ifdef DEBUG_VAE_SCATTER
+    BP_STRUCT(VaeHelper, bp::init<>())
+     .def("prepare", &vaeHelperPrepare, BP_RETURN_VALUE)
+        .def("sample", &vaeHelperSample, BP_RETURN_VALUE);
+
+#endif
+
 
     BP_CLASS(Sampler, ConfigurableObject, bp::no_init)
         .def("clone", &Sampler::clone, BP_RETURN_VALUE)

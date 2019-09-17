@@ -67,6 +67,8 @@ void IrradianceOctree::propagate(OctreeNode *node) {
     repr.E = Spectrum(0.0f);
     repr.area = 0.0f;
     repr.p = Point(0.0f, 0.0f, 0.0f);
+    repr.n = Vector(0.0f, 1.0f, 0.0f);
+    repr.wi = Vector(0.0f, 1.0f, 0.0f);
     Float weightSum = 0.0f;
 
     if (node->leaf) {
@@ -77,6 +79,9 @@ void IrradianceOctree::propagate(OctreeNode *node) {
             repr.area += sample.area;
             Float weight = sample.E.getLuminance() * sample.area;
             repr.p += sample.p * weight;
+            repr.n += sample.n * weight;
+            repr.wi += sample.wi * weight;
+
             weightSum += weight;
         }
         statsNumSamples += node->count;
@@ -91,13 +96,20 @@ void IrradianceOctree::propagate(OctreeNode *node) {
             repr.area += child->data.area;
             Float weight = child->data.E.getLuminance() * child->data.area;
             repr.p += child->data.p * weight;
+            repr.n += child->data.n * weight;
+            repr.wi += child->data.wi * weight;
             weightSum += weight;
         }
     }
     if (repr.area != 0)
         repr.E /= repr.area;
-    if (weightSum != 0)
+    if (weightSum != 0) {
         repr.p /= weightSum;
+        repr.n /= weightSum;
+        repr.wi /= weightSum;
+        repr.n = normalize(repr.n);
+        repr.wi = normalize(repr.wi);
+    }
 
     ++statsNumNodes;
 }

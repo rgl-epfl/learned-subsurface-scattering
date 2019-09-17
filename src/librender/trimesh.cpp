@@ -31,6 +31,8 @@
 #include <boost/filesystem/fstream.hpp>
 #include <boost/unordered_map.hpp>
 
+#include <iostream>
+
 #define MTS_FILEFORMAT_HEADER     0x041C
 #define MTS_FILEFORMAT_VERSION_V3 0x0003
 #define MTS_FILEFORMAT_VERSION_V4 0x0004
@@ -349,6 +351,8 @@ TriMesh::~TriMesh() {
         delete[] m_colors;
     if (m_triangles)
         delete[] m_triangles;
+    if (m_polyCoeffs)
+        delete[] m_polyCoeffs;
 }
 
 AABB TriMesh::getAABB() const {

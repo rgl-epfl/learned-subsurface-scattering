@@ -866,15 +866,15 @@ std::string timeString(Float time, bool precise) {
         return "inf";
 
     char suffix = 's';
-    if (time > 60) {
-        time /= 60; suffix = 'm';
-        if (time > 60) {
-            time /= 60; suffix = 'h';
-            if (time > 12) {
-                time /= 12; suffix = 'd';
-            }
-        }
-    }
+    // if (time > 60) {
+    //     time /= 60; suffix = 'm';
+    //     if (time > 60) {
+    //         time /= 60; suffix = 'h';
+    //         if (time > 12) {
+    //             time /= 12; suffix = 'd';
+    //         }
+    //     }
+    // }
 
     std::ostringstream os;
     os << std::setprecision(precise ? 4 : 1)

@@ -1,7 +1,43 @@
+import os 
+import sys
+
 Import('env', 'plugins')
 
-plugins += env.SharedLibrary('dipole',
+
+useTensorflow = False
+sssEnv = env.Clone()
+
+
+if useTensorflow:
+        if sssEnv.has_key('TENSORFLOWINCLUDE'):
+                sssEnv.Prepend(CPPPATH=sssEnv['TENSORFLOWINCLUDE'])
+        if sssEnv.has_key('TENSORFLOWLIBDIR'):
+                sssEnv.Prepend(LIBPATH=sssEnv['TENSORFLOWLIBDIR'])
+        if sssEnv.has_key('TENSORFLOWLIBS'):
+                sssEnv.Prepend(LIBS=sssEnv['TENSORFLOWLIBS'])
+        if sssEnv.has_key('TENSORFLOWLIBDIR'):
+                if sys.platform != 'darwin':
+                        sssEnv.Append(LINKFLAGS=['-rpath', sssEnv['TENSORFLOWLIBDIR'] + sssEnv['TENSORFLOWLIBS']])
+                else:
+                        sssEnv.Append(LINKFLAGS=['-rpath', os.path.join(sssEnv['TENSORFLOWLIBDIR'][0], sssEnv['TENSORFLOWLIBS'][0])])
+                sssEnv.Append(RPATH=sssEnv['TENSORFLOWLIBDIR'] + sssEnv['TENSORFLOWLIBS'])
+
+if useTensorflow:
+        sssEnv.Append(CPPDEFINES=['USETF'])
+        plugins += sssEnv.SharedLibrary('vaescatter', ['vaescatter.cpp', 'vaehelper.cpp', 'vaehelpertf.cpp', 'vaehelpereigen.cpp', 'vaehelperpt.cpp'])
+else:
+        plugins += sssEnv.SharedLibrary('vaescatter', ['vaescatter.cpp', 'vaehelper.cpp', 'vaehelpereigen.cpp', 'vaehelperpt.cpp'])
+
+
+plugins += sssEnv.SharedLibrary('dipole',
         ['dipole.cpp', 'irrproc.cpp', 'irrtree.cpp', 'bluenoise.cpp'])
 
-plugins += env.SharedLibrary('singlescatter', ['singlescatter.cpp'])
+
+plugins += sssEnv.SharedLibrary('dipole_rt',
+        ['dipole_rt.cpp'])
+
+plugins += sssEnv.SharedLibrary('singlescatter', ['singlescatter.cpp'])
+
+
+
 Export('plugins')

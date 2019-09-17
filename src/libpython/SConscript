@@ -1,5 +1,8 @@
 Import('env', 'sys', 'os', 'hasPython')
 
+DEBUG_VAE_SCATTER = False
+useXla = False
+
 for ver in hasPython:
         sver = ver.replace('.', '')
         python_include = list(env['PYTHON'+sver+'INCLUDE']) if env.has_key('PYTHON'+sver+'INCLUDE') else []
@@ -29,6 +32,27 @@ for ver in hasPython:
                 pythonEnv.Prepend(LIBPATH=pythonEnv['XERCESLIBDIR'])
         if pythonEnv.has_key('XERCESLIB'):
                 pythonEnv.Prepend(LIBS=pythonEnv['XERCESLIB'])
+
+        if DEBUG_VAE_SCATTER and not useXla:
+                if pythonEnv.has_key('TENSORFLOWINCLUDE'):
+                        pythonEnv.Prepend(CPPPATH=pythonEnv['TENSORFLOWINCLUDE'])
+                if pythonEnv.has_key('TENSORFLOWLIBDIR'):
+                        pythonEnv.Prepend(LIBPATH=pythonEnv['TENSORFLOWLIBDIR'])
+                if pythonEnv.has_key('TENSORFLOWLIBS'):
+                        pythonEnv.Prepend(LIBS=pythonEnv['TENSORFLOWLIBS'])
+
+        if useXla:
+                xlaPath = os.path.join(Dir('#').abspath, 'xla') + '/'
+                pythonEnv.Prepend(CPPPATH=xlaPath)
+                pythonEnv.Prepend(LIBPATH=xlaPath)
+                pythonEnv.Prepend(LIBS='libxlaabsorption')
+                pythonEnv.Prepend(LIBS='xlaout_pos_gen')
+                pythonEnv.Prepend(LIBS='xlaout_pos_gen_batched')
+                pythonEnv.Append(CPPDEFINES=['USEXLA'])
+
+                #pythonEnv.Append(LINKFLAGS=['-rpath', [xlaPath, '/usr/lib/python3.7/site-packages/tensorflow/']])
+                #pythonEnv.Append(RPATH=[xlaPath, '/usr/lib/python3.7/site-packages/tensorflow/'])
+
 
         if sys.platform != 'win32':
                 # Python has serious aliasing issues. Disable -fstrict-aliasing only for this library

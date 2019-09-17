@@ -121,8 +121,8 @@ public:
      * \param p The sample point on the surface
      * \param E The irradiance value at this position
      */
-    inline IrradianceSample(const Point &p, const Spectrum &E)
-        : p(p), E(E) { }
+    inline IrradianceSample(const Point &p, const Vector &n, const Vector &wi, const Spectrum &E)
+        : p(p), wi(wi), n(n), E(E) { }
 
     /// Serialize an irradiance sample to a binary data stream
     inline void serialize(Stream *stream) const {
@@ -137,6 +137,7 @@ public:
     }
 
     Point p;
+    Vector n, wi;
     Spectrum E;
     Float area;    //!< total surface area represented by this sample
     uint8_t label; //!< used by the octree construction code
@@ -196,7 +197,7 @@ class IrradianceSamplingProcess : public ParallelProcess {
 public:
     IrradianceSamplingProcess(PositionSampleVector *positions,
         size_t granularity, int irrSamples, bool irrIndirect,
-        Float time, const void *data);
+        Float time, const void *data, bool storeDir=false);
 
     inline IrradianceSampleVector *getIrradianceSampleVector() {
         return m_irradianceSamples.get();
@@ -229,6 +230,7 @@ private:
     ref<Mutex> m_resultMutex;
     ProgressReporter *m_progress;
     AABB m_aabb;
+    bool m_storeDir;
 };
 
 MTS_NAMESPACE_END

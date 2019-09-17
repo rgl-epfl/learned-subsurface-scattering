@@ -26,8 +26,8 @@ MTS_NAMESPACE_BEGIN
 /* Parallel irradiance sampling implementation (worker) */
 class IrradianceSamplingWorker : public WorkProcessor {
 public:
-    IrradianceSamplingWorker(int irrSamples, bool irrIndirect, Float time)
-        : m_irrSamples(irrSamples), m_irrIndirect(irrIndirect), m_time(time) {
+    IrradianceSamplingWorker(int irrSamples, bool irrIndirect, Float time, bool storeDir=false)
+        : m_irrSamples(irrSamples), m_irrIndirect(irrIndirect), m_time(time), m_storeDir(storeDir) {
     }
 
     IrradianceSamplingWorker(Stream *stream, InstanceManager *manager) {
@@ -76,11 +76,21 @@ public:
             its.time = m_time;
             its.hasUVPartials = false;
 
-            result->put(IrradianceSample(
-                its.p,
-                integrator->E(m_scene.get(), its, its.shape->getExteriorMedium(), m_sampler,
-                    m_irrSamples, m_irrIndirect)
-            ));
+
+            if (m_storeDir) {
+                Spectrum E;
+                Vector wi;
+                std::tie(E, wi) = integrator->E2(m_scene.get(), its, its.shape->getExteriorMedium(), m_sampler);
+                result->put(IrradianceSample(its.p, its.shFrame.n, wi, E));
+            } else {
+                result->put(IrradianceSample(
+                    its.p,
+                    its.shFrame.n,
+                    its.shFrame.n,
+                    integrator->E(m_scene.get(), its, its.shape->getExteriorMedium(), m_sampler,
+                        m_irrSamples, m_irrIndirect)
+                ));
+            }
         }
     }
 
@@ -97,6 +107,7 @@ private:
     ref<SamplingIntegrator> m_integrator;
     int m_irrSamples;
     bool m_irrIndirect;
+    bool m_storeDir;
     Float m_time;
 };
 
@@ -148,7 +159,7 @@ std::string IrradianceSampleVector::toString() const {
 
 IrradianceSamplingProcess::IrradianceSamplingProcess(PositionSampleVector *positions,
         size_t granularity, int irrSamples, bool irrIndirect, Float time,
-        const void *data)
+        const void *data, bool storeDir)
     : m_positionSamples(positions), m_granularity(granularity),
       m_irrSamples(irrSamples), m_irrIndirect(irrIndirect), m_time(time) {
     m_resultMutex = new Mutex();
@@ -156,6 +167,7 @@ IrradianceSamplingProcess::IrradianceSamplingProcess(PositionSampleVector *posit
     m_irradianceSamples->reserve(positions->size());
     m_samplesRequested = 0;
     m_progress = new ProgressReporter("Sampling irradiance", positions->size(), data);
+    m_storeDir = storeDir;
 }
 
 IrradianceSamplingProcess::~IrradianceSamplingProcess() {
@@ -164,7 +176,7 @@ IrradianceSamplingProcess::~IrradianceSamplingProcess() {
 }
 
 ref<WorkProcessor> IrradianceSamplingProcess::createWorkProcessor() const {
-    return new IrradianceSamplingWorker(m_irrSamples, m_irrIndirect, m_time);
+    return new IrradianceSamplingWorker(m_irrSamples, m_irrIndirect, m_time, m_storeDir);
 }
 
 ParallelProcess::EStatus IrradianceSamplingProcess::generateWork(WorkUnit *unit, int worker) {

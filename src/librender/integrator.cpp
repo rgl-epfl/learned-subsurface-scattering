@@ -87,6 +87,43 @@ Spectrum SamplingIntegrator::E(const Scene *scene, const Intersection &its,
     return E / (Float) nSamples;
 }
 
+std::pair<Spectrum, Vector> SamplingIntegrator::E2(const Scene *scene, const Intersection &its,
+        const Medium *medium, Sampler *sampler) const {
+    Spectrum E(0.0f);
+    RadianceQueryRecord query(scene, sampler);
+    DirectSamplingRecord dRec(its);
+    Frame frame(its.shFrame.n);
+
+    sampler->generate(Point2i(0));
+
+    // Sample the direct illumination component
+
+    if (query.nextSample1D() < 0.5f) {
+        int maxIntermediateInteractions = -1;
+        Spectrum directRadiance = scene->sampleAttenuatedEmitterDirect(
+            dRec, its, medium, maxIntermediateInteractions, query.nextSample2D());
+
+        if (!directRadiance.isZero()) {
+            Float dp = dot(dRec.d, its.shFrame.n);
+            if (dp > 0)
+                E += directRadiance * dp;
+        }
+        sampler->advance();
+        return std::make_pair(2.0f * E, dRec.d);
+    } else {
+        // Sample the indirect illumination component
+        query.newQuery(RadianceQueryRecord::ERadianceNoEmission, medium);
+        Vector d = frame.toWorld(warp::squareToCosineHemisphere(query.nextSample2D()));
+        ++query.depth;
+        query.medium = medium;
+        E += Li(RayDifferential(its.p, d, its.time), query) * M_PI;
+        sampler->advance();
+        return std::make_pair(2.0f * E, d);
+    }
+}
+
+
+
 void SamplingIntegrator::cancel() {
     if (m_process)
         Scheduler::getInstance()->cancel(m_process);

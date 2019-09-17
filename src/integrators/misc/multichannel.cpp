@@ -204,6 +204,10 @@ public:
                 sensorRay.scaleDifferential(diffScaleFactor);
                 rRec.rayIntersect(sensorRay);
 
+                rRec.its.filled = false;
+                rRec.its.predAbsorption = Spectrum(0.0f);
+                rRec.its.noAbsorption = Spectrum(0.0f);
+                rRec.its.missedProjection = 0.0f;
                 int offset = 0;
                 for (size_t k = 0; k<m_integrators.size(); ++k) {
                     RadianceQueryRecord rRec2(rRec);
@@ -211,6 +215,12 @@ public:
                     Spectrum result = spec * m_integrators[k]->Li(sensorRay, rRec2);
                     for (int l = 0; l<SPECTRUM_SAMPLES; ++l)
                         temp[offset++] = result[l];
+
+                    // Copy back information samples in Li
+                    rRec.its.filled = rRec2.its.filled;
+                    rRec.its.predAbsorption = rRec2.its.predAbsorption;
+                    rRec.its.noAbsorption = rRec2.its.noAbsorption;
+                    rRec.its.missedProjection = rRec2.its.missedProjection;
                 }
                 temp[offset++] = rRec.alpha;
                 temp[offset] = 1.0f;

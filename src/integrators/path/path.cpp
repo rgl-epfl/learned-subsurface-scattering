@@ -131,13 +131,19 @@ public:
 
         Spectrum throughput(1.0f);
         Float eta = 1.0f;
+        Spectrum sssContribution(0.0f);
+        Spectrum sssContributionFirst(0.0f);
+
+        Spectrum predAbsorption(0.0f);
+        float missedProjection = 0.0f;
+        Spectrum noAbsorption(0.0f);
 
         while (rRec.depth <= m_maxDepth || m_maxDepth < 0) {
             if (!its.isValid()) {
                 /* If no intersection could be found, potentially return
                    radiance from a environment luminaire if it exists */
                 if ((rRec.type & RadianceQueryRecord::EEmittedRadiance)
-                    && (!m_hideEmitters || scattered))
+                    && (!m_hideEmitters || scattered) && !(!scattered && (rRec.extra & RadianceQueryRecord::EIgnoreFirstBounceEmitted)))
                     Li += throughput * scene->evalEnvironment(ray);
                 break;
             }
@@ -146,12 +152,25 @@ public:
 
             /* Possibly include emitted radiance if requested */
             if (its.isEmitter() && (rRec.type & RadianceQueryRecord::EEmittedRadiance)
-                && (!m_hideEmitters || scattered))
+                && (!m_hideEmitters || scattered) && !(!scattered && (rRec.extra & RadianceQueryRecord::EIgnoreFirstBounceEmitted)))
                 Li += throughput * its.Le(-ray.d);
 
+            // if (rRec.extra & RadianceQueryRecord::EIgnoreFirstBounceEmitted) {
+            //     Log(EWarn, "Ignoring radiance on first bounce");
+            // }
+
             /* Include radiance from a subsurface scattering model if requested */
-            if (its.hasSubsurface() && (rRec.type & RadianceQueryRecord::ESubsurfaceRadiance))
-                Li += throughput * its.LoSub(scene, rRec.sampler, -ray.d, rRec.depth);
+            if (its.hasSubsurface() && (rRec.type & RadianceQueryRecord::ESubsurfaceRadiance)) {                
+                sssContribution = throughput * its.LoSub(scene, rRec.sampler, -ray.d, rRec.depth);
+                Li += sssContribution;
+                if (rRec.depth == 1) {
+                    predAbsorption = its.predAbsorption;
+                    missedProjection = its.missedProjection;
+                    noAbsorption = throughput * its.noAbsorption;
+                    rRec.its.filled = true;
+                    sssContributionFirst = sssContribution;
+                }
+            }
 
             if ((rRec.depth >= m_maxDepth && m_maxDepth > 0)
                 || (m_strictNormals && dot(ray.d, its.geoFrame.n)
@@ -285,6 +304,11 @@ public:
                 throughput /= q;
             }
         }
+
+        // Use the no absorption contribution instead of true SSS
+        its.predAbsorption = predAbsorption;
+        its.missedProjection = missedProjection;
+        its.noAbsorption = Li - sssContributionFirst + noAbsorption; 
 
         /* Store statistics */
         avgPathLength.incrementBase();

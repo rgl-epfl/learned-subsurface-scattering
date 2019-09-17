@@ -165,6 +165,9 @@ namespace boost {
     }
 }
 
+//DV: Explicitly include Python.h here to to fix VSCode intellisense issues...
+#include <Python.h>
+
 #include <boost/python.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include <boost/python/suite/indexing/map_indexing_suite.hpp>
@@ -286,6 +289,7 @@ namespace mitsuba {
     class SerializableObject;
     class ConfigurableObject;
 };
+
 
 typedef std::vector<std::string> StringVector;
 typedef std::vector<mitsuba::SerializableObject *> SerializableObjectVector;

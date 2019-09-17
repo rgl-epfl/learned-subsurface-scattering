@@ -645,14 +645,14 @@ public:
                     uvId += (int) texcoords.size() + 1;
 
                 if (vertexId > (int) vertices.size() || vertexId <= 0)
-                    Log(EError, "Out of bounds: tried to access vertex %i (max: %i)", vertexId, (int) vertices.size());
+                    Log(EError, "Out of bounds: tried to access vertex %i (max: %i) Mesh %s", vertexId, (int) vertices.size(), name.c_str());
 
                 vertex.p = objectToWorld(vertices[vertexId-1]);
                 aabb.expandBy(vertex.p);
 
                 if (normalId != 0) {
                     if (normalId > (int) normals.size() || normalId < 0)
-                        Log(EError, "Out of bounds: tried to access normal %i (max: %i)", normalId, (int) normals.size());
+                        Log(EError, "Out of bounds: tried to access normal %i (max: %i) Mesh %s", normalId, (int) normals.size(), name.c_str());
                     vertex.n = objectToWorld(normals[normalId-1]);
                     if (!vertex.n.isZero())
                         vertex.n = normalize(vertex.n);
@@ -663,7 +663,7 @@ public:
 
                 if (uvId != 0) {
                     if (uvId > (int) texcoords.size() || uvId < 0)
-                        Log(EError, "Out of bounds: tried to access uv %i (max: %i)", uvId, (int) texcoords.size());
+                        Log(EError, "Out of bounds: tried to access uv %i (max: %i) Mesh %s", uvId, (int) texcoords.size(), name.c_str());
                     vertex.uv = texcoords[uvId-1];
                     hasTexcoords = true;
                 } else {

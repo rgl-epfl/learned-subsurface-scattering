@@ -851,6 +851,7 @@ Spectrum Scene::sampleEmitterDirect(DirectSamplingRecord &dRec,
     }
 }
 
+
 Spectrum Scene::sampleAttenuatedEmitterDirect(DirectSamplingRecord &dRec,
         const Medium *medium, int &interactions, const Point2 &_sample, Sampler *sampler) const {
     Point2 sample(_sample);

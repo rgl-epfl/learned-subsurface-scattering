@@ -63,7 +63,10 @@ public:
         EUV,
         EAlbedo,
         EShapeIndex,
-        EPrimIndex
+        EPrimIndex,
+        ENoAbsorption,
+        EOnlyAbsorption,
+        EMissedProjection
     };
 
     FieldIntegrator(const Properties &props) : SamplingIntegrator(props) {
@@ -87,6 +90,12 @@ public:
             m_field = EShapeIndex;
         } else if (field == "primIndex") {
             m_field = EPrimIndex;
+        } else if (field == "noAbsorption") {
+            m_field = ENoAbsorption;
+        } else if (field == "onlyAbsorption") {
+            m_field = EOnlyAbsorption;
+        } else if (field == "missedProjection") {
+            m_field = EMissedProjection;
         } else {
             Log(EError, "Invalid 'field' parameter. Must be one of 'position', "
                 "'relPosition', 'distance', 'geoNormal', 'shNormal', "
@@ -98,8 +107,6 @@ public:
                 m_undefined = Spectrum(props.getFloat("undefined"));
             else
                 m_undefined = props.getSpectrum("undefined", Spectrum(0.0f));
-        } else {
-            m_undefined = Spectrum(0.0f);
         }
 
         if (SPECTRUM_SAMPLES != 3 && (m_field == EUV || m_field == EShadingNormal || m_field == EGeometricNormal
@@ -124,8 +131,12 @@ public:
     Spectrum Li(const RayDifferential &ray, RadianceQueryRecord &rRec) const {
         Spectrum result(m_undefined);
 
-        if (!rRec.rayIntersect(ray))
+        if (!rRec.rayIntersect(ray)) {
+            // We still might want to return something if we miss the scene
+            if (m_field == ENoAbsorption)
+                result = rRec.its.noAbsorption;
             return result;
+        }
 
         Intersection &its = rRec.its;
 
@@ -169,10 +180,18 @@ public:
             case EPrimIndex:
                 result = Spectrum((Float) its.primIndex);
                 break;
+            case ENoAbsorption:
+                result = its.noAbsorption;
+                break;
+            case EOnlyAbsorption:
+                result = its.predAbsorption;
+                break;
+            case EMissedProjection:
+                result = Spectrum(its.missedProjection);
+                break;
             default:
                 Log(EError, "Internal error!");
         }
-
         return result;
     }
 
