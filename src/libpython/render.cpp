@@ -15,9 +15,7 @@
 #include <mitsuba/render/renderjob.h>
 #include <mitsuba/render/noise.h>
 #include "../shapes/instance.h"
-#include <mitsuba/render/voxel_util.h>
 
-#include <mitsuba/render/project_gaussian.h>
 #include <mitsuba/render/sss_particle_tracer.h>
 #include <mitsuba/render/polynomials.h>
 #include <mitsuba/render/mediumparameters.h>

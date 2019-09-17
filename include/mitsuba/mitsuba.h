@@ -38,6 +38,7 @@
 using std::cout;
 using std::cerr;
 using std::endl;
+using std::size_t;
 
 /**
  * Include a basic subset of the core classes

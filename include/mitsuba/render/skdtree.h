@@ -413,6 +413,29 @@ protected:
                     result[2], Spectrum::EReflectance);
             }
 
+            // DV
+            const PolyStorage *polyCoeffs = trimesh->getPolyCoeffs();
+            const bool hasRgb = trimesh->hasRgb();
+            if (polyCoeffs) {
+                const PolyStorage &c0 = polyCoeffs[idx0];
+                const PolyStorage &c1 = polyCoeffs[idx1];
+                const PolyStorage &c2 = polyCoeffs[idx2];
+
+                for (int i = 0; i < polyCoeffs[idx0].nPolyCoeffs; ++i) {
+                    its.polyCoeffs[0][i] = b.x * c0.coeffs[0][i] +
+                                         b.y * c1.coeffs[0][i] +
+                                         b.z * c2.coeffs[0][i];
+                    if (hasRgb) {
+                        its.polyCoeffs[1][i] = b.x * c0.coeffs[1][i] +
+                                             b.y * c1.coeffs[1][i] +
+                                             b.z * c2.coeffs[1][i];
+                        its.polyCoeffs[2][i] = b.x * c0.coeffs[2][i] +
+                                             b.y * c1.coeffs[2][i] +
+                                             b.z * c2.coeffs[2][i];
+                    }
+                }
+                its.nPolyCoeffs = polyCoeffs[idx0].nPolyCoeffs;
+            }
             its.shape = trimesh;
             its.hasUVPartials = false;
             its.primIndex = cache->primIndex;

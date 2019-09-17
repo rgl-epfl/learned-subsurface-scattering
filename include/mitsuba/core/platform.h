@@ -148,8 +148,12 @@
 #define MM_ALIGN16             __declspec(align(16))
 #define EXPECT_TAKEN(a)        (a)
 #define EXPECT_NOT_TAKEN(a)    (a)
-#else
-#error Unsupported compiler!
+#else // I.e. Clang. While not really supported, we can at least prevent the linter from breaking
+#define FINLINE                
+#define NOINLINE               
+#define EXPECT_TAKEN(a)        (a)
+#define EXPECT_NOT_TAKEN(a)    (a)
+// #error Unsupported compiler!
 #endif
 
 #ifdef MTS_SSE

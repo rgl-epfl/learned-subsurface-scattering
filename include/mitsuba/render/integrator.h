@@ -193,7 +193,8 @@ public:
         /// This is a query by an irradiance cache
         ECacheQuery    = 0x01,
         /// This is a query by an adaptive integrator
-        EAdaptiveQuery = 0x02
+        EAdaptiveQuery = 0x02,
+        EIgnoreFirstBounceEmitted = 0x03
     };
 
     /// Construct an invalid radiance query record
@@ -347,6 +348,9 @@ public:
     virtual Spectrum E(const Scene *scene, const Intersection &its,
         const Medium *medium, Sampler *sampler, int nSamples,
         bool includeIndirect) const;
+
+    virtual std::pair<Spectrum, Vector> E2(const Scene *scene, const Intersection &its,
+        const Medium *medium, Sampler *sampler) const;
 
     /**
      * \brief Perform the main rendering task

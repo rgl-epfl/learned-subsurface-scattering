@@ -5,6 +5,8 @@
 #include <mitsuba/render/mediumparameters.h>
 #include <mitsuba/render/sss_particle_tracer.h>
 #include <mitsuba/render/polynomials.h>
+#include <mitsuba/core/plugin.h>
+
 
 #if defined(__OSX__)
 #  include <dispatch/dispatch.h>

@@ -24,6 +24,8 @@
 #include <mitsuba/core/pmf.h>
 #include <mitsuba/render/shape.h>
 
+#include <Eigen/Core>
+
 MTS_NAMESPACE_BEGIN
 
 /**
@@ -60,6 +62,15 @@ struct TangentSpace {
         return oss.str();
     }
 };
+
+
+// DV 
+struct PolyStorage {
+    float coeffs[3][20];
+    float kernelEps[3];
+    size_t nPolyCoeffs = 20;
+};
+
 
 /** \brief Abstract triangle mesh base class
  * \ingroup librender
@@ -140,6 +151,27 @@ public:
     /// Does the mesh have vertex normals?
     inline bool hasVertexNormals() const { return m_normals != NULL; };
 
+    //DV 
+    /// Return the shape descriptor polynomials (const version)
+    inline const PolyStorage *getPolyCoeffs() const { return m_polyCoeffs; };
+    /// Return the shape descriptor polynomials
+    inline PolyStorage *getPolyCoeffs() { return m_polyCoeffs; };
+    /// Does the mesh have coeffs?
+    inline bool hasPolyCoeffs() const { return m_polyCoeffs != NULL; };   
+
+    void createPolyCoeffsArray() {
+        m_polyCoeffs = new PolyStorage[m_vertexCount];
+    }
+
+    inline void setHasRgb(bool hasRgb) {
+        m_hasRgb = hasRgb;
+    }
+
+    inline bool hasRgb() const {
+        return m_hasRgb;
+    }
+
+    //
     /// Return the vertex colors (const version)
     inline const Color3 *getVertexColors() const { return m_colors; };
     /// Return the vertex colors
@@ -364,6 +396,10 @@ protected:
     size_t m_vertexCount;
     bool m_flipNormals;
     bool m_faceNormals;
+
+    // DV
+    mutable PolyStorage *m_polyCoeffs = NULL;
+    mutable bool m_hasRgb = false;
 
     /* Surface and distribution -- generated on demand */
     DiscreteDistribution m_areaDistr;

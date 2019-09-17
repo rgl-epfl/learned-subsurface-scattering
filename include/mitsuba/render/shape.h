@@ -169,6 +169,19 @@ public:
 
     /// Stores a pointer to the parent instance, if applicable
     const Shape *instance;
+
+    // DV
+    // Eigen::VectorXf polyCoeffs;
+    int sampledColorChannel = -1;
+
+    size_t nPolyCoeffs;
+    float polyCoeffs[3][20];
+    float kernelEps[3];
+
+    mutable Spectrum predAbsorption;
+    mutable Spectrum noAbsorption;
+    mutable float missedProjection;
+    mutable bool filled = false;
 };
 
 /** \brief Abstract base class of all shapes
