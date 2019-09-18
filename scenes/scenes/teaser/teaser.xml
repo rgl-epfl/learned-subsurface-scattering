@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<scene version="0.6.0">
+$$PREAMBLE$$
+
+    <default name="sigmaT0" value="52.013, 78.535, 109.121"/>
+    <default name="albedo0" value="0.99975, 0.999554, 0.9966"/>
+    <default name="meanCosine0" value="0.9"/>
+	<default name="extIOR0" value="air"/>
+	<default name="intIOR0" value="water"/>
+	<default name="roughness0" value="0.0"/>
+	<default name="bsdf0" value="dielectric"/>
+
+
+    <!-- <spectrum name="sigmaA" value="0.0026, 0.007, 0.0742"/> -->
+    <!-- <spectrum name="sigmaS" value="10.4 , 15.7 , 21.75"/> -->
+    <!-- <float name="g" value=".9"/> -->
+	<!-- <default name="scale" value="5"/> -->
+
+    <!-- <spectrum name="sigmaS" value="1.04, 1.57, 2.175"/> -->
+    <!-- <float name="forceG" value=".9"/> -->
+
+    <default name="sigmaT1" value="74.16, 88.85, 103.4"/>
+    <default name="albedo1" value="0.997842, 0.990433, 0.976789"/>
+	<default name="meanCosine1" value="0.95"/>
+	<default name="extIOR1" value="air"/>
+	<default name="intIOR1" value="water"/>
+	<default name="roughness1" value="0.05"/>
+	<default name="bsdf1" value="roughdielectric"/>
+
+    $$INTEGRATOR$$
+
+    <shape type="rectangle">
+        <bsdf type="roughplastic">
+            <float name="alpha" value="0.05"/>
+            <string name="material" value="none"/>
+            <spectrum name="diffuseReflectance" value="0.5"/>
+            <float name="intIOR" value="1.8"/>
+        </bsdf>
+        <transform name="toWorld">
+            <scale value="1000"/>
+            <!-- <translate z="-8.2"/> -->
+            <translate z="-8.25"/>
+            <!-- <translate z="-8.15"/> -->
+        </transform>
+    </shape>
+    <shape type="rectangle">
+        <bsdf type="diffuse">
+            <spectrum name="diffuseReflectance" value="0"/>
+        </bsdf>
+        <transform name="toWorld">
+            <scale value="1000"/>
+            <translate z="-9.2"/>
+        </transform>
+    </shape>
+
+    <emitter type="envmap">
+        <string name="filename" value="museum.exr"/>
+        <transform name="toWorld">
+            <rotate y="1" angle="90"/>
+        </transform>
+    </emitter>
+
+    <sensor type="perspective">
+        <string name="fovAxis" value="diagonal" />
+        <float name="fov" value="45" />
+        <float name="focusDistance" value="37.5416418210849" />
+        <transform name="toWorld">
+            <translate z="-30"/>
+            <translate x="-2"/>
+            <matrix value="-0.109746936359708, -0.380374772654371, -0.918297687184169, -0.52690069112399, -0.993959561531383, 0.041998656266278, 0.101392814894197, -93.7062564776157, -8.46545056276682E-16, 0.923878317312384, -0.382686366101587, 14.8140503630001, 0, 0, 0, 1" />
+        </transform>
+        <float name="nearClip" value="0.0033070431218964" />
+        <float name="farClip" value="668.08951957503" />
+        <film type="hdrfilm">
+            <integer name="width" value="1920" />
+            <integer name="height" value="1080" />
+            <boolean name="banner" value="false"/>
+            $$FILMDETAILS$$
+        </film>
+        <sampler type="ldsampler">
+            <integer name="sampleCount" value="$spp" />
+        </sampler>
+    </sensor>
+
+    <shape type="obj">
+        <string name="filename" value="soap_fine.obj" />
+$$MEDIUM1$$
+    </shape>
+    <shape type="obj">
+        <string name="filename" value="mesh2_fine.obj" />
+$$MEDIUM0$$
+    </shape>
+    <shape type="obj">
+        <string name="filename" value="mesh3_fine.obj" />
+$$MEDIUM0$$
+    </shape>
+</scene>
