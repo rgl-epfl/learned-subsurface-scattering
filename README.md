@@ -1,22 +1,71 @@
-Mitsuba — Physically Based Renderer
+A Learned Shape-Adaptive Subsurface Scattering Model
 ===================================
 
-http://mitsuba-renderer.org/
+Implementation of the paper ["A Learned Shape-Adaptive Subsurface Scattering Model"](https://rgl.epfl.ch/publications/Vicini2019Learned), Siggraph 2019 by Delio Vicini, Vladlen Koltun and Wenzel Jakob.
 
-## About
+The implementation is based on [Mitsuba 0.6](https://github.com/mitsuba-renderer/mitsuba).
 
-Mitsuba is a research-oriented rendering system in the style of PBRT, from which it derives much inspiration. It is written in portable C++, implements unbiased as well as biased techniques, and contains heavy optimizations targeted towards current CPU architectures. Mitsuba is extremely modular: it consists of a small set of core libraries and over 100 different plugins that implement functionality ranging from materials and light sources to complete rendering algorithms.
+# Compiling the code 
+See the [Mitsuba documentation](http://mitsuba-renderer.org/docs.html). 
+The python source code relies on the Mitsuba python bindings, 
+so you have to make sure the SCons build system builds them alongside the Mitsuba executable. 
+Once Mitsuba is built, run the command `source setpath.sh` to add Mitsuba and the python bindings to the path.
 
-In comparison to other open source renderers, Mitsuba places a strong emphasis on experimental rendering techniques, such as path-based formulations of Metropolis Light Transport and volumetric modeling approaches. Thus, it may be of genuine interest to those who would like to experiment with such techniques that haven't yet found their way into mainstream renderers, and it also provides a solid foundation for research in this domain.
+# Dependencies for the training code 
+The python code used for training the model was tested using Python 3.6 and requires the following modules: 
+* numpy
+* tensorflow 1.8
+* tqdm
+* trimesh
+* scikit-image
+* matplotlib
+* [exrpy](https://github.com/rgl-epfl/exrpy)
 
-The renderer currently runs on Linux, MacOS X and Microsoft Windows and makes use of SSE2 optimizations on x86 and x86_64 platforms. So far, its main use has been as a testbed for algorithm development in computer graphics, but there are many other interesting applications.
+The repository also contains an OpenGL viewer to visualize the learned distribution of scattering locations. 
+To run this viewer, you have to additionally clone and build a custom version of NanoGUI from https://github.com/dvicini/nanogui. 
+The relevant code is on the branch "framebuffer". 
 
-Mitsuba comes with a command-line interface as well as a graphical frontend to interactively explore scenes. While navigating, a rough preview is shown that becomes increasingly accurate as soon as all movements are stopped. Once a viewpoint has been chosen, a wide range of rendering techniques can be used to generate images, and their parameters can be tuned from within the program.
+# Using the pre-trained model 
+This repository contains the trained model used to generate the results from the paper. 
+While this code base also contains all the code for training a new model from scratch, 
+it might be more convenient to just run the pre-trained model (e.g. for comparisons)
 
-## Documentation
+To do so, first rename the folder `pysrc/outputs_paper` to `pysrc/outputs`. 
+The following command then renders the teaser scene (see the files in the `scenes` subfolder):
+```
+python render_results.py --scenes teaser --spp 32 --techniques 0487_FinalSharedLs7Mixed3_AbsSharedSimComplexMixed3 --ncores 8
+```
 
-For compilation, usage, and a full plugin reference, please see the [official documentation](http://mitsuba-renderer.org/docs.html).
 
-## Releases and scenes
 
-Pre-built binaries, as well as example scenes, are available on the [Mitsuba website](http://mitsuba-renderer.org/download.html).
+# Generating the training data 
+The model is trained on data set of ground-truth light paths. 
+To generate the training data set, the following script has to be run: 
+
+```
+python train_scattering_model.py --gentraindata --datasetconfig ScatterData
+```
+
+This will take a while (depending on the machine several hours). 
+The size of the data set can be decreased for debugging purposes by adjusting `n_scenes` in the `MeshGenerator` class in `datapipeline.py` and `n_train_samples` in the `ScatterData` class in the same file.
+
+Once the data set is generated, it should be written to a subfolder in `pysrc/outputs/vae3d/datasets`. 
+
+# Training the model 
+To train the model, the variable `SCATTERDATASIMILARITY` in `pysrc/vae/config.py` has to be set to the training dataset name which should be used. 
+By default, the data set generated in the previous step will be called `0000_ScatterData` and nothing has to be changed. 
+
+The model itself can then be trained by running 
+```
+python train_scattering_model.py --train --config VaeScatter/AbsorptionModel
+```
+
+
+# Rendering using a trained model 
+
+The simplest way to render using a trained model is to use the `render_results.py` script.
+We provide the teaser scene of our paper as an example scene in the `scenes` subfolder.
+To render it using the trained model, simply run
+```
+python render_results.py --scenes teaser --spp 32 --techniques 0000_VaeScatter_AbsorptionModel --ncores 8
+```

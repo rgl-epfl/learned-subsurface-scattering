@@ -4,31 +4,7 @@ import sys
 import vae.datapipeline
 import vae.model
 
-# SCATTERDATA = '0081_ScatterData'
-SCATTERDATA = '0004_ScatterData'
-SCATTERDATASURFACECONSTRAINT = '0083_ScatterDataHardConstraint'
-# SCATTERDATASIMILARITY = '0003_ScatterDataSimilarityMixed'
-# SCATTERDATASIMILARITY = '0113_ScatterDataSimilarityMixed'
-SCATTERDATASIMILARITY = '0121_ScatterData'
-SCATTERDATASIMILARITYOLD = '0003_ScatterDataSimilarityMixed'
-
-SCATTERDATAIS = '0053_ScatterDataIs'
-SCATTERDATADEG2 = '0067_ScatterDataHighAbsDeg2'
-SCATTERDATATRUE = '0068_ScatterDataPcTrue'
-SCATTERDATASH = '0069_ScatterDataPcShTrue'
-SCATTERDATASPHEREFIXEDMEDIUM = '0059_ScatterDataSphereFixedMedium'
-SCATTERDATASPHEREFIXEDMEDIUMSEARCHLIGHT = '0111_ScatterDataSphereFixedMediumSearchlight'
-SCATTERDATABIGSPHEREFIXEDMEDIUM = '0058_ScatterDataBigSphereFixedMedium'
-SCATTERDATASPHERE = '0055_ScatterDataSphere'
-SCATTERDATASPHEREDEG2 = '0056_ScatterDataSphereDeg2'
-SCATTERDATASPHEREFIXEDMEDIUMSEARCHLIGHTDEG2 = '0060_ScatterDataSphereFixedMediumSearchlightDeg2'
-SCATTERDATAPLANEFIXEDMEDIUMSEARCHLIGHT = '0016_ScatterDataPlaneFixedMediumSearchlight'
-
-SCATTERDATASLABS = '0115_ScatterDataSlabMesh'
-
-SCATTERDATAMIXED2 = '0122_ScatterDataMixed2'
-SCATTERDATAMIXED3 = '0123_ScatterDataMixed3'
-SCATTERDATAMIXED4 = '0124_ScatterDataMixed4'
+SCATTERDATA = '0000_ScatterData'
 
 class ConfigBase:
     def __init__(self):
@@ -53,11 +29,10 @@ class ConfigBase:
         self.wae_random_enc = False
         self.add_encoder_noise = True  # Adds noise to the input of the encoder to reduce overfitting
 
-        # TODO: Should be decoupled from dataset
-        self.shape_features_name = None
-        self.predict_in_tangent_space = False
-        self.prediction_space = 'WS'
-        self.polynomial_space = 'WS'
+        self.shape_features_name = 'mlsPolyLS3'
+        self.predict_in_tangent_space = True
+        self.prediction_space = 'LS'
+        self.polynomial_space = 'LS'
         # network to preprocess shape features before feeding to main network
         self.shape_feat_net = None
 
@@ -101,7 +76,7 @@ class ConfigBase:
         self.filter_outliers = False
         self.filter_feature_outliers = False
 
-        self.clip_gradient_threshold = 1e6
+        self.clip_gradient_threshold = 100
         self.nice_first_layer_feats = False
         self.clamp_shape_features = False
 
@@ -114,15 +89,6 @@ class ConfigBase:
 
         self.pass_in_dir = False
         self.pass_in_dir_after_preprocess = False
-        self.use_point_net = False
-        self.n_point_net_points = 64
-        self.point_net_feature_sizes = [8, 16, 32]
-        self.point_net_use_normals = False
-        self.point_net_use_weights = False
-        # Normal binned point-net
-        self.point_net_normal_histogram = False
-        self.point_net_n_normal_bins = 3
-        self.point_net = vae.model.baseline_point_net
 
         self.rotate_features = False
 
@@ -148,6 +114,11 @@ class ConfigBase:
 
     def __str__(self):
         return dict(self.__dict__).__str__()
+
+    def poly_order(self):
+        if not self.shape_features_name:
+            return 0
+        return vae.utils.extract_poly_order_from_feat_name(self.shape_features_name)
 
 
 import vae.config_abs

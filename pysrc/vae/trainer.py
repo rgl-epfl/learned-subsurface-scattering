@@ -39,23 +39,6 @@ def batch_to_feed_dict(predictor, batch, feature_statistics, config, is_training
         sigma_t = batch[indices['sigmaT']]
         feed_dict[predictor.poly_scale_factor_p] = vae.utils.get_poly_scale_factor(vae.utils.kernel_epsilon(g, sigma_t, albedo))
 
-    if config.use_point_net:
-        feed_dict[predictor.points_p] = batch[indices['points']]
-        feed_dict[predictor.points_mean_p] = feature_statistics['points{}_mean'.format(config.prediction_space)]
-        feed_dict[predictor.points_stdinv_p] = feature_statistics['points{}_mean'.format(config.prediction_space)]
-
-        if config.point_net_use_normals:
-            feed_dict[predictor.point_normals_p] = batch[indices['pointNormals']]
-            feed_dict[predictor.point_normals_mean_p] = feature_statistics['pointNormals{}_mean'.format(config.prediction_space)]
-            feed_dict[predictor.point_normals_stdinv_p] = feature_statistics['pointNormals{}_mean'.format(config.prediction_space)]
-
-        if config.point_net_use_weights:
-            feed_dict[predictor.point_weights_p] = batch[indices['pointWeights']]
-        g = batch[indices['g']]
-        albedo = batch[indices['albedo']]
-        sigma_t = batch[indices['sigmaT']]
-        feed_dict[predictor.poly_scale_factor_p] = vae.utils.get_poly_scale_factor(vae.utils.kernel_epsilon(g, sigma_t, albedo))
-
     if config.use_outpos_statistics:
         feed_dict[predictor.out_pos_mean_p] = feature_statistics['outPosRel{}_mean'.format(config.prediction_space)]
         feed_dict[predictor.out_pos_stdinv_p] = feature_statistics['outPosRel{}_stdinv'.format(config.prediction_space)]

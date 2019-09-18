@@ -628,20 +628,16 @@ def run(args, cmd_string):
             cmd_hash = str(hashlib.md5(b'Hello World').hexdigest())
             render_xml = os.path.join(scene_folder, s + '_' + t + '_' + time_str + '_' + cmd_hash + '_tmp_scene.xml')
 
-            model, model_abs, model_angular = None, None, None
+            model, model_abs = None, None
             if t_model in trained_models:
                 model = t_model
                 model_abs = t_abs_model
-                model_angular = t_angular_model
                 # Check if this graph was already frozen and freeze it if it has not been
-                if not os.path.isfile(os.path.join(args.outputdir, 'models', model, 'frozen_model.pb')):
+                if not os.path.isdir(os.path.join(args.outputdir, 'models', model, 'variables')):
                     freeze_model.simple_freeze(os.path.join(args.outputdir, 'models', model), ['scatter/out_pos_gen'])
-                if model_abs and not os.path.isfile(os.path.join(args.outputdir, 'models_abs', model_abs, 'frozen_model.pb')):
+                if model_abs and not os.path.isdir(os.path.join(args.outputdir, 'models_abs', model_abs, 'variables')):
                     freeze_model.simple_freeze(os.path.join(args.outputdir, 'models_abs',
                                                             model_abs), ['absorption/absorption'])
-                if model_angular and not os.path.isfile(os.path.join(args.outputdir, 'models_angular', model_angular, 'frozen_model.pb')):
-                    freeze_model.simple_freeze(os.path.join(args.outputdir, 'models_angular',
-                                                            model_angular), ['angular/out_dir_gen'])
 
             # Detect if the medium is supposed to be index matched
             medium_index_matched = []
@@ -761,10 +757,7 @@ def run(args, cmd_string):
                 else:
                     render_cmd += f' -DabsModelName=None'
 
-                if model_angular is not None:
-                    render_cmd += f' -DangularModelName={model_angular}'
-                else:
-                    render_cmd += f' -DangularModelName=None'
+                render_cmd += f' -DangularModelName=None'
 
                 if args.noabs:
                     render_cmd += ' -DdisableAbsorption=true'

@@ -273,11 +273,7 @@ def feat_infos(config):
             ('outDir', tf.float32, config.dim),
             ('outNormal', tf.float32, config.dim),
             ('polygonIdx', tf.int32, 1) if config.dim == 2 else ('meshIdx', tf.int32, 1)]
-    if config.use_point_net:
-        info.append(('points', tf.float32, config.n_point_net_points, 3))
-        info.append(('pointNormals', tf.float32, config.n_point_net_points, 3))
-        info.append(('pointWeights', tf.float32, config.n_point_net_points))
-    elif config.shape_features_name:
+    if config.shape_features_name:
         info.append((config.shape_features_name, tf.float32,
                      shape_feat_name_to_num_coeff(config.shape_features_name, config.dim)))
 

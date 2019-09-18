@@ -89,16 +89,8 @@ class Scatter3DViewer(ViewerApp):
                                                         self.g, self.sigma_t, self.albedo, True, self.mesh,
                                                         normal, False, self.kdtree_threshold, self.fit_regularization, self.use_hard_surface_constraint)
 
-            if not cfg.use_point_net:
-                poly_coeffs = features['coeffs']
-                coeffs_to_show = np.copy(poly_coeffs)
-            else:
-                coeffs_to_show = np.ones((1, 1))
-                # For debugging: Compute a histogram of point normals in local space
-                nors = features['point_normals'][0, :, :]
-                cos_theta = np.sum(normal * nors, axis=1)
-                coeffs_to_show, _ = np.histogram(cos_theta, 4, [-1.01, 1.01])
-                coeffs_to_show = coeffs_to_show[None, :]
+            poly_coeffs = features['coeffs']
+            coeffs_to_show = np.copy(poly_coeffs)
 
             thickness = None
             nor_hist = None
@@ -668,15 +660,13 @@ class Scatter3DViewer(ViewerApp):
                                                                                          self.use_legacy_epsilon, self.kdtree_threshold, self.fit_regularization,
                                                                                          self.scene, self.use_hard_surface_constraint, features=features)
                 coeffs = None
-                if self.scatter_config.use_sh_coeffs or self.scatter_config.use_point_net:
+                if self.scatter_config.use_sh_coeffs:
                     outPos = np.copy(generated_samples)
                     outNormal = outPos
                     valid_pos = np.ones(outPos.shape[0], dtype=np.bool)
                     if 'coeffs' in extra_info and extra_info['coeffs'] is not None:
                         shCoeffs = extra_info['coeffs']
 
-                if self.scatter_config.use_point_net:
-                    points = extra_info['points']
                 if 'coeffs' in extra_info and not self.scatter_config.use_sh_coeffs and extra_info['coeffs'] is not None:
                     outPos, outNormal, valid_pos = utils.mtswrapper.project_points_on_mesh(self.scene, generated_samples,
                                                                                            self.its_loc, -self.inDirection, extra_info['coeffs_ws'],
@@ -715,14 +705,6 @@ class Scatter3DViewer(ViewerApp):
 
                 if 'pos_constraints' in extra_info and extra_info['pos_constraints'] is not None:
                     extra_info['pos_constraints'] = vae.utils.mts_to_np(extra_info['pos_constraints'])
-
-                    if self.scatter_config.use_point_net:
-                        n_points = 64
-                        effective_epsilon = vae.utils.kernel_epsilon(self.g, self.sigma_t, self.albedo)
-                        all_weights = np.exp(-np.sum((self.its_loc -
-                                                      extra_info['pos_constraints']) ** 2, axis=1) / (2 * effective_epsilon))
-                        pt_indices = utils.math.weighted_sampling_without_replacement(all_weights.tolist(), n_points)
-                        extra_info['pos_constraints'] = extra_info['pos_constraints'][pt_indices, :]
 
                 result = {'mode': Mode.PREDICTION,
                           'outPos': outPos[valid_pos],

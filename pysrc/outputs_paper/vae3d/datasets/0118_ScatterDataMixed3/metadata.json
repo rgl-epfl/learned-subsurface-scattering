@@ -1,0 +1,37 @@
+{
+    "name": "0118_ScatterDataMixed3",
+    "time": "2019-04-19 18:51:36",
+    "git": {
+        "revision": "fae647dab67c424bd3065ba46b5e453f2b237c00",
+        "diff": "diff --git a/pysrc/render_results.py b/pysrc/render_results.py\nindex fc75ef2..e9a1f3a 100755\n--- a/pysrc/render_results.py\n+++ b/pysrc/render_results.py\n@@ -47,7 +47,7 @@ def create_cluster_render_job(args, tmpdir):\n \n         if len(args.techniques) > 0:\n             raise ValueError(\"Cannot schedule other techniques at the same time as reference rendering\")\n-        max_spp_per_ref_job = 2048\n+        max_spp_per_ref_job = 512\n         n_jobs = int(np.ceil(args.refspp // max_spp_per_ref_job))\n         sbatch_ids = []\n         for i in range(n_jobs):\ndiff --git a/scenes b/scenes\n--- a/scenes\n+++ b/scenes\n@@ -1 +1 @@\n-Subproject commit 55bd1cf62fef2855fbb68173f20dff8591bca52a\n+Subproject commit 55bd1cf62fef2855fbb68173f20dff8591bca52a-dirty"
+    },
+    "config": "ScatterDataMixed3",
+    "datasetconfig": {
+        "mesh_generator": "default",
+        "medium_param_generator": "MixedMediumParamGenerator3",
+        "dataset_folder": "/scratch/vicini/outputs/vae3d/datasets/0118_ScatterDataMixed3",
+        "n_train_samples": 100000,
+        "constant_variables": [],
+        "searchlight_configuration": false,
+        "importance_sample_polynomials": false,
+        "gather_point_cloud": false,
+        "compute_sh_coefficients": false,
+        "batch_size": 16,
+        "n_abs_samples": 1024,
+        "batch_reduction_factor": 1,
+        "shard_size": 2560,
+        "use_true_scattering": false,
+        "polyfit_config": {
+            "regularization": 9.999999747378752e-05,
+            "useSvd": false,
+            "useLightspace": true,
+            "order": 3,
+            "hardSurfaceConstraint": true,
+            "globalConstraintWeight": 0.009999999776482582,
+            "kdTreeThreshold": 0.0,
+            "extractNormalHistogram": false,
+            "useSimilarityKernel": true
+        },
+        "compute_normal_histogram": false
+    }
+}

@@ -481,7 +481,7 @@ def process_sampled_data(batch_size, traindata_file, constant_variables=[]):
 class MeshGenerator:
     def __init__(self, scene_dir, resource_dir, mesh_folder='complexshapes', name='default'):
         self.test_fraction = 0.2
-        self.n_scenes = 200
+        self.n_scenes = 20
         self.name = name
         self.scene_dir = scene_dir
         self.resource_dir = resource_dir
@@ -673,6 +673,7 @@ class ScatterData:
 
         self.dataset_folder = dataset_folder
         self.n_train_samples = 100000
+        self.n_train_samples = 128
         self.constant_variables = []
         self.searchlight_configuration = False
         self.importance_sample_polynomials = False

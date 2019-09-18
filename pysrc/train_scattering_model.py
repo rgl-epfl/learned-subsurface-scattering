@@ -16,7 +16,6 @@ import tensorflow as tf
 import utils.namegen
 import vae.config
 import vae.config_abs
-import vae.config_angular
 import vae.config_scatter
 import vae.datahandler
 import vae.datapipeline
@@ -40,8 +39,6 @@ def run(args):
 
     if args.abs:
         tensorflow_logdir = os.path.join(args.output, 'models_abs')
-    elif args.angular:
-        tensorflow_logdir = os.path.join(args.output, 'models_angular')
     else:
         tensorflow_logdir = os.path.join(args.output, 'models')
 
@@ -94,8 +91,6 @@ def run(args):
     if args.dryrun:
         if args.abs:
             config = vae.config.get_config(vae.config_abs, args.config)
-        elif args.angular:
-            config = vae.config.get_config(vae.config_angular, args.config)
         else:
             config = vae.config.get_config(vae.config_scatter, args.config)
         return
@@ -126,20 +121,18 @@ def run(args):
                 print('Error: Trying to overwrite existing training run!')
                 quit()
 
-        config_abs, config_angular = None, None
+        config_abs = None
         if multiple_configs:
             config = vae.config.get_config(vae.config_scatter, configs[0])
             if configs[1] != '':
                 config_abs = vae.config.get_config(vae.config_abs, configs[1])
-            if len(configs) > 2 and configs[2] != '':
-                config_angular = vae.config.get_config(vae.config_angular, configs[2])
-            if (config_abs and config_abs.dataset != config.dataset) or (config_angular and config_angular.dataset != config.dataset):
+            print(f"config_abs.dataset: {config_abs.dataset}")
+            print(f"config.dataset: {config.dataset}")
+            if (config_abs and config_abs.dataset != config.dataset):
                 raise ValueError('Different configs must use the same dataset')
         else:
             if args.abs:
                 config = vae.config.get_config(vae.config_abs, args.config)
-            elif args.angular:
-                config = vae.config.get_config(vae.config_angular, args.config)
             else:
                 config = vae.config.get_config(vae.config_scatter, args.config)
 
@@ -160,13 +153,11 @@ def run(args):
         config.datasetdir = config.dataset
         if not args.restoretrain:
             configs = [config]
-            if config_angular:
-                configs.append(config_angular)
             if config_abs:
                 configs.append(config_abs)
             dump_config(log_dir, args, configs)
 
-        predictor_abs, predictor_angular = None, None
+        predictor_abs = None
         predictors = []
         ph_manager = vae.predictors.PlaceholderManager(dim=3)
         if multiple_configs:
@@ -175,14 +166,9 @@ def run(args):
             if config_abs:
                 predictor_abs = vae.predictors.AbsorptionPredictor(ph_manager, config_abs, args.output)
                 predictors.append(predictor_abs)
-            if config_angular:
-                predictor_angular = vae.predictors.AngularScatterPredictor(ph_manager, config_angular, args.output)
-                predictors.append(predictor_angular)
         else:
             if args.abs:
                 predictor = vae.predictors.AbsorptionPredictor(ph_manager, config, args.output)
-            elif args.angular:
-                predictor = vae.predictors.AngularScatterPredictor(ph_manager, config, args.output)
             else:
                 predictor = vae.predictors.ScatterPredictor(ph_manager, config, args.output)
             predictors.append(predictor)
@@ -230,8 +216,6 @@ def main(args):
     parser.add_argument('--jobid', default=None, type=int)
     parser.add_argument('--njobs', default=10, type=int)
 
-    parser.add_argument('--ntrainsamples', default=100000, type=int)
-    parser.add_argument('--ntrainscenes', default=200, type=int)
     parser.add_argument('--datasetconfig', default='default', type=str)
     parser.add_argument('--datasetfolder', default=None, type=str)
     parser.add_argument('--datasetname', default=None, type=str)
@@ -247,7 +231,6 @@ def main(args):
     parser.add_argument('--reportfailure', help='If set, exceptions are forwarded to slack (useful for cluster runs)',
                         action='store_true')
 
-    parser.add_argument('--angular', help='If set, we will train just the angular prediction', action='store_true')
     args = parser.parse_args(args)
 
     try:

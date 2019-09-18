@@ -149,19 +149,7 @@ class ScatterPredictor:
         self.prefix = 'scatter'
         self.ph_manager = ph_manager
 
-        if config.use_point_net:
-            ph_manager.create_placeholder('points_p', tf.float32, [None, config.n_point_net_points, 3], 'points')
-            ph_manager.create_placeholder('points_mean_p', tf.float32, [3], 'pointsMean')
-            ph_manager.create_placeholder('points_stdinv_p', tf.float32, [3], 'pointsStdInv')
-            ph_manager.create_placeholder('point_normals_p', tf.float32, [None, config.n_point_net_points, 3], 'normals')
-            ph_manager.create_placeholder('point_normals_mean_p', tf.float32, [3], 'normalsMean')
-            ph_manager.create_placeholder('point_normals_stdinv_p', tf.float32, [3], 'normalsStdInv')
-            ph_manager.create_placeholder('point_weights_p', tf.float32, [None, config.n_point_net_points], 'weights')
-            ph_manager.create_placeholder('point_weights_mean_p', tf.float32, [1], 'weightsMean')
-            ph_manager.create_placeholder('point_weights_stdinv_p', tf.float32, [1], 'weightsStdInv')
-            ph_manager.create_placeholder('poly_scale_factor_p', tf.float32, [None, 1], 'polyScaleFactor')
-        else:
-            ph_manager.create_shape_placeholders(config.shape_features_name)
+        ph_manager.create_shape_placeholders(config.shape_features_name)
         ph_manager.create_placeholder('latent_z', tf.float32, [None, config.n_latent], 'scatterLatent')
         with tf.variable_scope(self.prefix):
             self.model_outputs = config.model(ph_manager, config, output_dir)
@@ -205,20 +193,7 @@ class AbsorptionPredictor:
         self.config = config
         self.prefix = 'absorption'
         self.ph_manager = ph_manager
-
-        if config.use_point_net:
-            ph_manager.create_placeholder('points_p', tf.float32, [None, config.n_point_net_points, 3], 'points')
-            ph_manager.create_placeholder('points_mean_p', tf.float32, [3], 'pointsMean')
-            ph_manager.create_placeholder('points_stdinv_p', tf.float32, [3], 'pointsStdInv')
-            ph_manager.create_placeholder('point_normals_p', tf.float32, [None, config.n_point_net_points, 3], 'normals')
-            ph_manager.create_placeholder('point_normals_mean_p', tf.float32, [3], 'normalsMean')
-            ph_manager.create_placeholder('point_normals_stdinv_p', tf.float32, [3], 'normalsStdInv')
-            ph_manager.create_placeholder('point_weights_p', tf.float32, [None, config.n_point_net_points], 'weights')
-            ph_manager.create_placeholder('point_weights_mean_p', tf.float32, [1], 'weightsMean')
-            ph_manager.create_placeholder('point_weights_stdinv_p', tf.float32, [1], 'weightsStdInv')
-            ph_manager.create_placeholder('poly_scale_factor_p', tf.float32, [None, 1], 'polyScaleFactor')
-        else:
-            ph_manager.create_shape_placeholders(config.shape_features_name)
+        ph_manager.create_shape_placeholders(config.shape_features_name)
 
         with tf.variable_scope(self.prefix):
             self.model_outputs = config.model(ph_manager, config, output_dir)
@@ -243,44 +218,3 @@ class AbsorptionPredictor:
     def dump_graph_info(self, filename):
         vae.tf_utils.dump_pbtxt_config(['absorption/absorption'], self.model_outputs['absorption'],
                                        self.config, filename + '_absorption', 1, 'Absorption')
-
-
-class AngularScatterPredictor:
-    def __init__(self, ph_manager, config, output_dir):
-        self.config = config
-        self.prefix = 'angular'
-        self.ph_manager = ph_manager
-
-        ph_manager.create_shape_placeholders(config.shape_features_name)
-        ph_manager.create_placeholder('angular_latent_z', tf.float32, [None, config.n_latent], 'angularLatent')
-
-        with tf.variable_scope(self.prefix):
-            self.model_outputs = config.model(ph_manager, config, output_dir)
-
-    def get_losses(self, global_step):
-        if self.config.use_vmf:
-            losses = {'loss': tf.reduce_mean(-self.model_outputs['log_pdf'])}
-            with tf.name_scope('loss/'):
-                tf.summary.scalar('loss', losses['loss'])
-        elif self.config.use_nice:
-            losses = nice_loss(self.model_outputs['rec_u'], self.model_outputs['log_jacobian'])
-            with tf.name_scope('loss/'):
-                tf.summary.scalar('prior_loss', tf.reduce_mean(losses['prior_loss']))
-                tf.summary.scalar('log_jacobian', tf.reduce_mean(losses['log_jacobian']))
-                tf.summary.scalar('loss', losses['loss'])
-        else:
-            losses = vae_loss(self.ph_manager.out_pos_p, self.model_outputs['out_pos'], self.model_outputs['z_mean'],
-                              self.model_outputs['z_log_sigma2'], self.model_outputs['z_encoded'], global_step, self.config.gen_loss_weight,
-                              self.config.gen_loss, self.config.loss_clamp_val, self.config.use_wae_mmd,
-                              self.config.wae_random_enc, self.config.latent_loss_annealing, self.ph_manager, self.config)
-            with tf.name_scope('loss/'):
-                tf.summary.scalar('generation_loss', tf.reduce_mean(losses['generation_loss']))
-                tf.summary.scalar('latent_loss', tf.reduce_mean(losses['latent_loss']))
-                tf.summary.scalar('loss', losses['loss'])
-        return losses
-
-    def dump_graph_info(self, filename):
-        vae.tf_utils.dump_pbtxt_config(['angular/out_dir_gen'], self.model_outputs['out_dir_gen'], self.config,
-                                       filename + '_out_dir_gen_batched', 8, 'OutDirGenBatched')
-        vae.tf_utils.dump_pbtxt_config(['angular/out_dir_gen'], self.model_outputs['out_dir_gen'],
-                                       self.config, filename + '_out_dir_gen', 1, 'OutDirGen')

@@ -53,75 +53,12 @@ def shared_preproc_mlp_2_impl(features, is_training):
     return models.nn.multilayer_fcn(features, is_training, None, 3, 64, False, 'shapemlp')
 
 
-@share_variables
-def baseline_point_net_shared(placeholders, config):
-    return baseline_point_net(placeholders, config)
-
-
 def recreate_shared_functions():
     globals()['shared_preproc_mlp'] = share_variables2(shared_preproc_mlp_impl, 'shared_preproc_mlp')
     globals()['shared_preproc_mlp_2'] = share_variables2(shared_preproc_mlp_2_impl, 'shared_preproc_mlp_2')
 
 
 recreate_shared_functions()
-
-
-def baseline_point_net(placeholders, config):
-    reference_frame = -placeholders.in_dir_p if config.prediction_space == 'LS' else placeholders.in_normal_p
-    in_pos = tf.expand_dims(placeholders.in_pos_p, 1)
-    reference_frame = tf.expand_dims(reference_frame, 1)
-    pts = world_to_local(in_pos, reference_frame,
-                         placeholders.points_p, config.predict_in_tangent_space)
-    pts = (pts - placeholders.points_mean_p) * placeholders.points_stdinv_p
-
-    if config.scale_point_by_poly_scale:
-        pts *= tf.expand_dims(placeholders.poly_scale_factor_p, -1)
-
-    # Apply 1D convolutions to pts
-    if config.point_net_use_normals:
-        nors = world_to_local(tf.zeros_like(in_pos), reference_frame,
-                              placeholders.point_normals_p, config.predict_in_tangent_space)
-
-        cos_theta = nors[:, :, 2]
-        nors = (nors - placeholders.point_normals_mean_p) * placeholders.point_normals_stdinv_p
-        x = tf.concat([pts, nors], axis=-1)
-    else:
-        x = pts
-
-    x = tf.expand_dims(x, 1)
-
-    for i, s in enumerate(config.point_net_feature_sizes):
-        # x = conv2d_layer(x, prev_s, s, 1)
-        x = conv2d_layer_new(x, s, 1, f'conv{i}')
-        # prev_s = s
-
-    if config.point_net_normal_histogram:
-        x = tf.reshape(x, [-1, config.n_point_net_points, config.point_net_feature_sizes[-1]])
-        if config.point_net_use_weights:
-            x, counts = vae.tf_utils.binned_average(
-                x, cos_theta, [-1.01, 1.01], config.point_net_n_normal_bins, weights=placeholders.point_weights_p)
-        else:
-            x, counts = vae.tf_utils.binned_average(
-                x, cos_theta, [-1.01, 1.01], config.point_net_n_normal_bins)
-
-        return tf.reshape(x, [-1, config.point_net_n_normal_bins * x.shape[-1]])
-    elif config.point_net_use_weights:
-        w = placeholders.point_weights_p / \
-            tf.maximum(tf.reduce_sum(placeholders.point_weights_p, 1, keepdims=True), 0.01)
-        w = tf.expand_dims(w, 1)
-        w = tf.expand_dims(w, -1)
-        return tf.reduce_sum(x * w, (1, 2))
-    else:
-        return tf.reduce_mean(x, (1, 2))
-
-
-def polyCnn(x, placeholders, config):
-
-    x = utils.tensorflow.conv3d_layer(x, 1, 4, 3)
-    x = utils.tensorflow.max_pool_2x2x2(x)
-    x = utils.tensorflow.conv3d_layer(x, 4, 8, 3)
-    x = utils.tensorflow.max_pool_2x2x2(x)
-    return x
 
 
 def preprocess_features(placeholders, config):
@@ -182,8 +119,6 @@ def preprocess_features(placeholders, config):
                     shape_features.shape[3] * shape_features.shape[4]
                 shape_features = tf.reshape(shape_features, [tf.shape(shape_features)[0], n_out_elems])
 
-    if config.use_point_net:
-        shape_features = config.point_net(placeholders, config)
 
     # 3. Optional: Get in_dir coordinats in tangent space
     in_dir_ts = world_to_local(tf.zeros_like(placeholders.in_pos_p),
@@ -265,42 +200,6 @@ def absorptionPredictor(trainer, config, output_dir):
     return model_outputs
 
 
-def baselineCNN(trainer, config, output_dir):
-    # Apply some convolutional layers to the local_grid
-    discretized_geometry = vae.tf_utils.extract_voxel_grid(trainer, output_dir)
-    filtered_geometry = config.convnet(discretized_geometry)
-    features = tf.reshape(filtered_geometry,
-                          [-1, filtered_geometry.shape[1] * filtered_geometry.shape[2] * filtered_geometry.shape[3]])
-
-    reference_frame = -trainer.in_dir_p if config.prediction_space == 'LS' else trainer.in_normal_p
-    rel_out_pos = world_to_local(trainer.in_pos_p, reference_frame,
-                                 trainer.out_pos_p, config.predict_in_tangent_space)
-
-    rel_out_pos = (rel_out_pos - trainer.out_pos_mean_p) * trainer.out_pos_stdinv_p
-
-    if config.use_wae_mmd:
-        z_mean = None
-        z_log_sigma2 = None
-        z_encoded = models.vae.encoder(rel_out_pos, trainer.phase_p, features, config)
-        vae_out_pos, vae_out_pos_gen = models.vae.decoder(
-            trainer.out_pos_p.shape[1], None, None, trainer.phase_p, trainer.latent_z, features, config, z_encoded)
-    else:
-        z_mean, z_log_sigma2 = models.vae.encoder(rel_out_pos, trainer.phase_p, features, config)
-        vae_out_pos, vae_out_pos_gen = models.vae.decoder(
-            trainer.out_pos_p.shape[1], z_mean, z_log_sigma2, trainer.phase_p, trainer.latent_z, features, config)
-        z_encoded = None
-
-    vae_out_pos = vae_out_pos / trainer.out_pos_stdinv_p + trainer.out_pos_mean_p
-    vae_out_pos_gen = vae_out_pos_gen / trainer.out_pos_stdinv_p + trainer.out_pos_mean_p
-    vae_out_pos = local_to_world(trainer.in_pos_p, reference_frame,
-                                 vae_out_pos, config.predict_in_tangent_space)
-    vae_out_pos_gen = local_to_world(trainer.in_pos_p, reference_frame,
-                                     vae_out_pos_gen, config.predict_in_tangent_space)
-
-    return {'out_pos': vae_out_pos, 'out_pos_gen': vae_out_pos_gen, 'z_encoded': z_encoded,
-            'z_mean': z_mean, 'z_log_sigma2': z_log_sigma2}
-
-
 def baselineNICE(trainer, config, output_dir):
 
     model_outputs = {}
@@ -380,28 +279,6 @@ def baselineShapeDescriptor(trainer, config, output_dir):
 
     out_pos_gen_unproj = tf.identity(out_pos_gen)
 
-    # Approximate surface projection
-    if config.surface_projection_method == 'gd':
-        rate = 5.0
-        for i in range(config.surface_projection_iterations):
-            value = vae.tf_utils.eval_poly(out_pos, None, None, trainer.shape_features_p,
-                                           config.poly_order(), tangent_space=False, scale=trainer.poly_scale_factor_p)
-            grad = vae.tf_utils.tf_eval_poly_gradient(
-                out_pos, None, None, trainer.shape_features_p, tangent_space=False,
-                scale=trainer.poly_scale_factor_p, poly_order=config.poly_order())
-            tf.check_numerics(grad, "grad is nan", name=None)
-            out_pos = out_pos - tf.clip_by_value(rate * grad * tf.sign(value) * trainer.poly_scale_factor_p, -
-                                                 config.surface_projection_clip_range, config.surface_projection_clip_range)
-
-        for i in range(config.surface_projection_iterations):
-            value = vae.tf_utils.eval_poly(out_pos_gen, None, None, trainer.shape_features_p,
-                                           config.poly_order(), tangent_space=False, scale=trainer.poly_scale_factor_p)
-            grad = vae.tf_utils.tf_eval_poly_gradient(
-                out_pos_gen, None, None, trainer.shape_features_p, tangent_space=False, scale=trainer.poly_scale_factor_p, poly_order=config.poly_order())
-            tf.check_numerics(grad, "grad is nan", name=None)
-            out_pos_gen = out_pos_gen - tf.clip_by_value(rate * grad * tf.sign(
-                value) * trainer.poly_scale_factor_p, -config.surface_projection_clip_range, config.surface_projection_clip_range)
-
     if config.use_epsilon_space:
         model_outputs['ref_pos_eps'] = ref_out_pos_eps
         model_outputs['out_pos_eps'] = out_pos
@@ -435,126 +312,7 @@ def baselineShapeDescriptor(trainer, config, output_dir):
     return model_outputs
 
 
-def projectiveNet(trainer, config, output_dir):
-    features = preprocess_features(trainer, config)
-
-    reference_frame = -trainer.in_dir_p if config.prediction_space == 'LS' else trainer.in_normal_p
-    rel_out_pos = world_to_local(trainer.in_pos_p, reference_frame,
-                                 trainer.out_pos_p, config.predict_in_tangent_space)
-    # rel_out_pos = (rel_out_pos - trainer.out_pos_mean_p) * trainer.out_pos_stdinv_p
-
-    n_outputs = trainer.out_pos_p.shape[1]
-    z_mean, z_log_sigma2 = models.vae.encoder(rel_out_pos, trainer.phase_p, features, config)
-
-    samples = tf.random_normal([tf.shape(z_mean)[0], config.n_latent], 0, 1, dtype=tf.float32)
-    estimated_z = z_mean + (tf.exp(z_log_sigma2 / 2) * samples)
-
-    decoder = tf.make_template('projectiveDecoder', models.vae.projectiveDecoder)
-    out_pos = decoder(estimated_z + trainer.out_pos_mean_p, n_outputs, trainer.phase_p, features, config, trainer)
-    out_pos_gen = decoder(trainer.latent_z + trainer.out_pos_mean_p, n_outputs,
-                          trainer.phase_p, features, config, trainer)
-
-    # out_pos = out_pos / trainer.out_pos_stdinv_p + trainer.out_pos_mean_p
-    # out_pos_gen = out_pos_gen / trainer.out_pos_stdinv_p + trainer.out_pos_mean_p
-    out_pos = local_to_world(trainer.in_pos_p, reference_frame,
-                             out_pos, config.predict_in_tangent_space, 'out_pos')
-    out_pos_gen = local_to_world(trainer.in_pos_p, reference_frame,
-                                 out_pos_gen, config.predict_in_tangent_space, 'out_pos_gen')
-    return {'out_pos': out_pos, 'out_pos_gen': out_pos_gen,
-            'out_pos_gen_unproj': out_pos_gen, 'z_encoded': None,
-            'z_mean': z_mean, 'z_log_sigma2': z_log_sigma2}
-
-
-def baselineAngularScatter(trainer, config, output_dir):
-    features = preprocess_features(trainer, config)
-
-    # Convert outgoing direction into the outgoing tangent space
-    local_out_dir = world_to_local(tf.zeros_like(trainer.in_pos_p), trainer.out_normal_p, trainer.out_dir_p, True)
-
-    # For now, just try to reconstruct the projection on x, y components. Later: Apply concentric mapping here
-    # Multiply with ior ratio to implicitly account for critical angle
-    input_sample = local_out_dir[:, :2] * trainer.ior_p
-
-    # Compute PDF of sample to do maximum-likelihood
-    sampled_x, rec_u, log_jacobian = models.nice.niceModel(
-        input_sample, trainer.angular_latent_z, False, config.n_coupling_layers, config.n_mlp_layers,
-        config.n_mlp_width, trainer.phase_p, features, config.nice_first_layer_feats, config.use_res_net)
-
-    out_dir_gen = sampled_x / trainer.ior_p
-    z = tf.sqrt(tf.clip_by_value(1 - tf.reduce_sum(out_dir_gen ** 2, axis=1), 0.0, 1.0))
-    out_dir_gen = tf.stack([out_dir_gen[:, 0], out_dir_gen[:, 1], z], axis=1)
-    out_dir_gen = local_to_world(tf.zeros_like(trainer.in_pos_p), trainer.out_normal_p,
-                                 out_dir_gen, True, 'out_dir_gen')
-
-    return {'out_dir_gen': out_dir_gen, 'log_jacobian': log_jacobian, 'rec_u': rec_u}
-
-
-def vmfAngularScatter(predictor, config, output_dir):
-
-    features = preprocess_features(predictor, config)
-
-    # Relative position compared to input
-    reference_frame = -predictor.in_dir_p if config.prediction_space == 'LS' else predictor.in_normal_p
-    rel_out_pos = world_to_local(predictor.in_pos_p, reference_frame,
-                                 predictor.out_pos_p, config.predict_in_tangent_space)
-    rel_out_pos = (rel_out_pos - predictor.out_pos_mean_p) * predictor.out_pos_stdinv_p
-
-    # Convert outgoing direction into light space
-    local_out_dir = world_to_local(tf.zeros_like(predictor.in_pos_p), reference_frame,
-                                   predictor.out_dir_p, config.predict_in_tangent_space)
-
-    # Apply a fully connected network to predict parameters of vMF distribution: direction mu, concentration k
-    nn_output = models.nn.multilayer_fcn(features, predictor.phase_p, None,
-                                         config.n_mlp_layers, config.n_mlp_width, False, 'mlp')
-
-    vmf_params = tf.contrib.layers.fully_connected(nn_output, 4, scope=f'fc_final', activation_fn=None)
-
-    vmf_dir = tf.nn.tanh(vmf_params[:, :3])
-    vmf_dir = vmf_dir / tf.sqrt(tf.reduce_sum(tf.square(vmf_dir), axis=1, keepdims=True))
-    vmf_k = tf.nn.relu(vmf_params[:, 3]) + 0.01
-
-    # pdf = vmf_k / (2 * np.pi * (1 - tf.exp(-2 * vmf_k))) * tf.exp(vmf_k * (tf.reduce_sum(vmf_dir * local_out_dir, axis=1, keepdims=True) - 1))
-    log_pdf = tf.log(vmf_k / (2 * np.pi * (1 - tf.exp(-2 * vmf_k)))) + vmf_k * \
-        (tf.reduce_sum(vmf_dir * local_out_dir, axis=1) - 1)
-
-    # Sampling code
-    u0 = predictor.angular_latent_z[:, 0]
-    u1 = predictor.angular_latent_z[:, 1]
-
-    u0 = 2 * np.pi * u0
-    w = 1 + 1.0 / vmf_k * tf.log(u1 + (1 - u1) * tf.exp(-2 * vmf_k))
-    sqrt_w = tf.sqrt(1 - w * w)
-    out_dir_gen = tf.stack([sqrt_w * tf.cos(u0), sqrt_w * tf.sin(u0), w], axis=1)
-
-    t1, t2 = vae.tf_utils.onb_duff(vmf_dir)
-
-    out_dir_gen = tf.expand_dims(out_dir_gen[..., 0], -1) * t1 + \
-        tf.expand_dims(out_dir_gen[..., 1], -1) * t2 + \
-        tf.expand_dims(out_dir_gen[..., 2], -1) * vmf_dir
-
-    # Convert to world space
-    out_dir_gen = local_to_world(tf.zeros_like(predictor.in_pos_p), reference_frame,
-                                 out_dir_gen, config.predict_in_tangent_space, 'out_dir_gen')
-
-    vmf_dir_ws = local_to_world(tf.zeros_like(predictor.in_pos_p), reference_frame,
-                                vmf_dir, config.predict_in_tangent_space, 'vmf_dir_ws')
-
-    return {'out_dir_gen': out_dir_gen, 'log_pdf': log_pdf, 'vmf_k': vmf_k, 'vmf_dir': vmf_dir, 'vmf_dir_ws': vmf_dir_ws}
-
-
-def debugAngularScatter(trainer, config, output_dir):
-    batch_size = tf.shape(trainer.in_pos_p)[0]
-    out_dir_gen = tf.zeros((batch_size, 2))
-    z = tf.sqrt(tf.clip_by_value(1 - tf.reduce_sum(out_dir_gen ** 2, axis=1), 0.0, 1.0))
-    out_dir_gen = tf.stack([out_dir_gen[:, 0], out_dir_gen[:, 1], z], axis=1)
-    out_dir_gen = local_to_world(tf.zeros_like(trainer.in_pos_p), trainer.out_normal_p,
-                                 out_dir_gen, True, 'out_dir_gen')
-
-    rec_u = tf.zeros((batch_size, 2))
-    log_jacobian = tf.Variable(tf.ones(4), 'debug_var')
-
-    return {'out_dir_gen': out_dir_gen, 'log_jacobian': log_jacobian, 'rec_u': rec_u}
-
+  
 
 def generate_new_samples_feed_dict(predictor, in_pos, in_normal, in_direction, shape_features, albedo,
                                    sigma_t, g, eta, feature_statistics, config, out_pos=None, out_normals=None,
@@ -579,18 +337,6 @@ def generate_new_samples_feed_dict(predictor, in_pos, in_normal, in_direction, s
         feed_dict[predictor.poly_scale_factor_p] = vae.utils.get_poly_scale_factor(
             vae.utils.kernel_epsilon(g, sigma_t, albedo))
 
-    if config.use_point_net:
-        feed_dict[predictor.points_p] = points
-        feed_dict[predictor.points_mean_p] = feature_statistics['points{}_mean'.format(config.prediction_space)]
-        feed_dict[predictor.points_stdinv_p] = feature_statistics['points{}_mean'.format(config.prediction_space)]
-        feed_dict[predictor.point_normals_p] = point_normals
-        feed_dict[predictor.point_normals_mean_p] = feature_statistics['pointNormals{}_mean'.format(
-            config.prediction_space)]
-        feed_dict[predictor.point_normals_stdinv_p] = feature_statistics['pointNormals{}_mean'.format(
-            config.prediction_space)]
-        feed_dict[predictor.point_weights_p] = point_weights
-        feed_dict[predictor.poly_scale_factor_p] = vae.utils.get_poly_scale_factor(
-            vae.utils.kernel_epsilon(g, sigma_t, albedo))
 
     if 'outPosRel{}_mean'.format(config.prediction_space) in feature_statistics:
         feed_dict[predictor.out_pos_mean_p] = feature_statistics['outPosRel{}_mean'.format(config.prediction_space)]
@@ -634,13 +380,6 @@ def extract_shape_features(config, in_pos, scene, constraint_kdtree, in_dir, g, 
                                                                                kdtree_threshold, fit_regularization, use_hard_constraint)
         return {'features': 'poly', 'coeffs': coeffs, 'coeffs_ws': coeffs_ws, 'pos_constraints': pos_constraints, 'nor_constraints': nor_constraints,
                 'adjusted_in_dir': adjusted_in_dir, 'poly_normal': poly_normal}
-    elif config.use_point_net:
-        points, point_normals, point_weights = extract_point_features(config, in_pos, constraint_kdtree, in_dir, g,
-                                                                      sigma_t, albedo, rotate_poly, mesh, in_normal,
-                                                                      use_legacy_kernel)
-
-        return {'features': 'points', 'points': points, 'point_normals': point_normals, 'point_weights': point_weights}
-
 
 def extract_poly_shape_features(config, in_pos, constraint_kdtree, in_dir, g, sigma_t,
                                 albedo, rotate_poly, in_normal, kdtree_threshold, fit_regularization, use_hard_constraint=True):
@@ -679,27 +418,6 @@ def extract_poly_shape_features(config, in_pos, constraint_kdtree, in_dir, g, si
     return coeffs, coeffs_ws, pos_constraints, nor_constraints, adjusted_in_dir, poly_normal
 
 
-def extract_point_features(config, in_pos, constraint_kdtree, in_dir, g, sigma_t, albedo, rotate_poly, mesh, in_normal, use_legacy_kernel):
-    in_pos = in_pos.ravel()
-    in_pos_mts = Point3(float(in_pos[0]), float(in_pos[1]), float(in_pos[2]))
-    effective_epsilon = vae.utils.kernel_epsilon(g, sigma_t, albedo)
-    pts, nors, weights = mitsuba.render.Volpath3D.getLocalPoints(
-        in_pos_mts, effective_epsilon, 'gaussian', constraint_kdtree)
-    n_points = config.n_point_net_points
-    pts = vae.utils.mts_to_np(pts)
-    nors = vae.utils.mts_to_np(nors)
-    weights = np.exp(-np.sum((in_pos - pts) ** 2, axis=1) / (2 * effective_epsilon))
-    pt_indices = utils.math.weighted_sampling_without_replacement(weights.tolist(), n_points)
-    pts = pts[pt_indices][None, :, :]
-    nors = nors[pt_indices][None, :, :]
-    weights = weights[pt_indices][None, :]
-    if pts.shape[0] < n_points:  # Pad the arrays to n_points
-        pts = np.concatenate([pts, np.zeros((1, n_points - pts.shape[1], 3))], 1)
-        nors = np.concatenate([nors, np.zeros((1, n_points - nors.shape[1], 3))], 1)
-        weights = np.concatenate([weights, np.zeros((1, n_points - weights.shape[1]))], 1)
-    return pts, nors, weights
-
-
 def generate_new_samples(sess, in_pos, in_dir, in_normal, mesh, config, scatter_pred, feature_statistics,
                          n_samples, albedo, sigma_t, g, eta, constraint_kdtree=None,
                          disable_shape_features=False, rotate_poly=True, use_legacy_kernel=False,
@@ -735,10 +453,6 @@ def generate_new_samples(sess, in_pos, in_dir, in_normal, mesh, config, scatter_
             shape_features_batch = np.ones((batch_size, num_poly_coeffs)) * np.atleast_2d(features['coeffs'])
             if disable_shape_features:
                 shape_features_batch *= 0.0
-        elif config.use_point_net:
-            points_batch = np.tile(features['points'], (batch_size, 1, 1))
-            point_normals_batch = np.tile(features['point_normals'], (batch_size, 1, 1))
-            point_weights_batch = np.tile(features['point_weights'], (batch_size, 1))
 
         adjusted_in_dir_batch = np.ones((batch_size, config.dim)) * features['adjusted_in_dir']
         poly_normal_batch = np.ones((batch_size, config.dim)) * features['poly_normal']
@@ -796,10 +510,6 @@ def vae_reconstruct_samples(sess, out_pos, coeffs, in_pos, in_dir, in_normal, co
             shape_features_batch = np.ones((batch_size, num_poly_coeffs)) * coeffs
             if disable_shape_features:
                 shape_features_batch *= 0.0
-        elif config.use_point_net:
-            points_batch = np.tile(features['points'], (batch_size, 1, 1))
-            point_normals_batch = np.tile(features['point_normals'], (batch_size, 1, 1))
-            point_weights_batch = np.tile(features['point_weights'], (batch_size, 1))
 
         albedo_batch = np.ones((batch_size, 3)) * albedo
         sigma_t_batch = np.ones((batch_size, 3)) * sigma_t
@@ -834,10 +544,6 @@ def estimate_absorption(sess, in_pos, in_dir, in_normal, config, absorption_pred
     point_normals_batch, point_weights_batch = None, None
     if config.shape_features_name:
         shape_features_batch = np.ones((1, num_poly_coeffs)) * features['coeffs']
-    elif config.use_point_net:
-        points_batch = np.tile(features['points'], (1, 1, 1))
-        point_normals_batch = np.tile(features['point_normals'], (1, 1, 1))
-        point_weights_batch = np.tile(features['point_weights'], (1, 1))
 
     albedo_batch = np.ones((1, 3)) * albedo
     sigma_t_batch = np.ones((1, 3)) * sigma_t
